@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mobile-geodatabase"
+version = "0.1.0"
+description = "Read Esri Mobile Geodatabase (.geodatabase) files without proprietary dependencies"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "MobileGeodatabaseLib Contributors" }
+]
+keywords = [
+    "esri",
+    "geodatabase",
+    "gis",
+    "geospatial",
+    "st_geometry",
+    "sqlite",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+mobile-geodatabase = "mobile_geodatabase.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/foundatron/MobileGeodatabaseLib"
+Repository = "https://github.com/foundatron/MobileGeodatabaseLib"
+Issues = "https://github.com/foundatron/MobileGeodatabaseLib/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mobile_geodatabase"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
