@@ -27,11 +27,14 @@ __version__ = "0.1.0"
 from .converters import (
     feature_to_geojson,
     features_to_geojson,
+    geometry_to_shapely,
     to_geojson_geometry,
     to_wkb,
     to_wkt,
+    web_mercator_to_wgs84,
     write_geojson,
     write_geojsonl,
+    write_geopackage,
 )
 from .database import (
     Feature,
@@ -78,10 +81,13 @@ __all__ = [
     "decode_geometry",
     "feature_to_geojson",
     "features_to_geojson",
+    "geometry_to_shapely",
     "to_geojson_geometry",
     "to_wkb",
     # Converters
     "to_wkt",
+    "web_mercator_to_wgs84",
     "write_geojson",
     "write_geojsonl",
+    "write_geopackage",
 ]

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import click
 
-from .converters import to_wkt, write_geojson, write_geojsonl
+from .converters import to_wkt, write_geojson, write_geojsonl, write_geopackage
 from .database import GeoDatabase
 
 
@@ -106,7 +106,7 @@ def info(geodatabase: str, output_json: bool):
     "--format",
     "-f",
     "output_format",
-    type=click.Choice(["geojson", "geojsonl"]),
+    type=click.Choice(["geojson", "geojsonl", "gpkg"]),
     help="Output format (default: auto-detect from extension)",
 )
 @click.option("--limit", "-n", type=int, help="Limit number of features")
@@ -122,12 +122,13 @@ def convert(
     compact: bool,
 ):
     """
-    Convert geodatabase table to GeoJSON.
+    Convert geodatabase table to GeoJSON or GeoPackage.
 
     Examples:
         mobile-geodatabase convert input.geodatabase output.geojson
         mobile-geodatabase convert input.geodatabase rivers.geojson -t Rivers
         mobile-geodatabase convert input.geodatabase data.geojsonl -n 1000
+        mobile-geodatabase convert input.geodatabase output.gpkg -f gpkg
     """
     try:
         gdb = GeoDatabase(geodatabase)
@@ -166,6 +167,8 @@ def convert(
         fmt = output_format
     elif output_path.suffix.lower() == ".geojsonl":
         fmt = "geojsonl"
+    elif output_path.suffix.lower() == ".gpkg":
+        fmt = "gpkg"
     else:
         fmt = "geojson"
 
@@ -175,6 +178,8 @@ def convert(
     try:
         if fmt == "geojsonl":
             count = write_geojsonl(gdb, table_name, output, where=where, limit=limit)
+        elif fmt == "gpkg":
+            count = write_geopackage(gdb, table_name, output, where=where, limit=limit)
         else:
             indent = None if compact else 2
             count = write_geojson(
