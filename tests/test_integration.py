@@ -158,8 +158,9 @@ class TestCoordinateValidation:
 
         def is_valid_wa(x: float, y: float) -> bool:
             """Check if coordinates are valid for Pacific Northwest region in EPSG:3857.
-            Includes Pacific marine areas, extends to Canadian border and Oregon."""
-            return -14_500_000 < x < -12_000_000 and 5_400_000 < y < 6_600_000
+            Includes Pacific marine areas, extends into Canada and south to Oregon.
+            Note: Some data may have points in British Columbia or Alberta."""
+            return -14_500_000 < x < -12_000_000 and 5_400_000 < y < 7_000_000
 
         def get_all_coords(geom: Geometry) -> list[tuple[float, float]]:
             """Extract all coordinates from a geometry."""

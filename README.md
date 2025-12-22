@@ -246,4 +246,4 @@ MIT License - see LICENSE file.
 
 ## Acknowledgments
 
-The ST_Geometry format was reverse-engineered by analyzing real geodatabase files. This library is not affiliated with or endorsed by Esri.
+The ST_Geometry format was reverse-engineered by analyzing real geodatabase files. This library is not affiliated with or endorsed by Esri. Also doesn't really work...yet.

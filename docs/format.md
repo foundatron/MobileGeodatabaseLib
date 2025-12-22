@@ -138,36 +138,55 @@ x = curr_x / (XY_SCALE * 2) + X_ORIGIN
 y = curr_y / (XY_SCALE * 2) + Y_ORIGIN
 ```
 
-## Multi-Part Geometry Detection (KEY INSIGHT)
+## Multi-Part Geometry Structure (KEY INSIGHT)
 
-Multi-part geometries (MultiLineString, Polygon with holes, MultiPolygon) encode each part's first coordinate as an **absolute value** rather than a delta.
+Multi-part geometries (MultiLineString, Polygon with holes, MultiPolygon) use the **part_info** structure to define parts:
 
-**Detection algorithm:**
+**Part info structure:**
 
-1. Read first coordinate pair as absolute values
-1. For subsequent coordinates, read varint pair (v1, v2)
-1. If v1 > 100 billion: This is a new part, treat (v1, v2) as absolute coordinate
-1. If v1 < 100 billion: This is a delta, decode with zigzag and add to current position
+```text
+part_info[0] = num_parts
+part_info[1:num_parts+1] = point count per part
+part_info[num_parts+1:] = trailing metadata (byte offsets, flags)
+```
+
+**Important:** Absolute coordinate resets (values > 100 billion) can appear **within a single part** as an encoding optimization when delta values would be too large. These are NOT part boundaries.
+
+**Decoding algorithm:**
 
 ```python
 COORD_THRESHOLD = 100_000_000_000  # 100 billion
 
-while points_read < point_count:
-    v1, v2 = read_varint_pair()
+# Parse part_info to get part structure
+num_parts = part_info[0]
+points_per_part = part_info[1:num_parts+1]
 
-    if v1 > COORD_THRESHOLD:
-        # New part - absolute coordinate
-        start_new_part()
-        curr_x, curr_y = v1, v2
-    else:
-        # Same part - delta coordinate
-        dx = zigzag_decode(v1)
-        dy = zigzag_decode(v2)
-        curr_x += dx
-        curr_y += dy
+# Decode each part
+for part_idx in range(num_parts):
+    part_point_count = points_per_part[part_idx]
+    current_part = []
 
-    add_point(curr_x, curr_y)
+    for i in range(part_point_count):
+        v1, v2 = read_varint_pair()
+
+        if v1 > COORD_THRESHOLD:
+            # Absolute coordinate reset (encoding optimization, NOT new part)
+            curr_x, curr_y = v1, v2
+        else:
+            # Delta coordinate
+            dx = zigzag_decode(v1)
+            dy = zigzag_decode(v2)
+            curr_x += dx
+            curr_y += dy
+
+        current_part.append((curr_x, curr_y))
+
+    parts.append(current_part)
 ```
+
+## Z Values (for geometry types with Z)
+
+For Z-enabled geometries (flags & 0x40), Z values are stored as varints **after** all XY coordinates. There is one Z value per point, delta-encoded.
 
 ## Verified Working (100% Success)
 

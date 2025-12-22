@@ -7,8 +7,9 @@ success rate on 51,895 test geometries.
 
 Key Technical Facts:
     - Scale Factor: Coordinates use 2x metadata scale (XYScale=10000 -> actual=20000)
-    - Coordinate Threshold: 100 billion (1e11) distinguishes coords from metadata
-    - Multi-Part Detection: New parts start with absolute coords (>100B), deltas are smaller
+    - Coordinate Threshold: 100 billion (1e11) distinguishes coords from metadata varints
+    - Part Structure: part_info[0] = num_parts, part_info[1:num_parts+1] = point counts
+    - Coordinate Resets: Absolute coords (>100B) can appear mid-part as encoding optimization
     - Magic Header: 0x64 0x11 0x0F 0x00
     - Formula: x = raw_x / (scale * 2) + origin
 """
@@ -152,14 +153,17 @@ class STGeometryDecoder:
         _size_hint, pos = self.read_varint(blob, pos)
         geom_flags, pos = self.read_varint(blob, pos)
 
-        # Bounding box (4 large varints)
+        # Bounding box (4 varints - may be small for normalized bbox)
         _xmin_raw, pos = self.read_varint(blob, pos)
         _ymin_raw, pos = self.read_varint(blob, pos)
         _xmax_raw, pos = self.read_varint(blob, pos)
         _ymax_raw, pos = self.read_varint(blob, pos)
 
-        # Part information - variable length structure after bbox
-        # All part info varints are small (< 100 billion), coordinates are large
+        # Part information structure:
+        # - All part info varints are small (< 100 billion)
+        # - First large varint (> 100 billion) is the first X coordinate
+        # - part_info[0] = num_parts (for multi-part geometries)
+        # - part_info[1:num_parts+1] = point count per part
         part_info: list[int] = []
         x_raw: int = 0
         while pos < len(blob):
@@ -177,36 +181,67 @@ class STGeometryDecoder:
         # Read first Y coordinate
         y_raw, pos = self.read_varint(blob, pos)
 
-        # Decode coordinates with multi-part detection
+        # Determine part structure from part_info
+        # For single-part: part_info might just have trailing zeros or [point_count, 0, 0]
+        # For multi-part: part_info[0] = num_parts, part_info[1:num_parts+1] = points per part
+        num_parts = 1
+        points_per_part: list[int] = [point_count]
+
+        if part_info:
+            potential_num_parts = part_info[0]
+            # Check if this looks like a valid part structure:
+            # - num_parts should be reasonable (< 10000)
+            # - should have enough values for part counts
+            # - all counts should be non-negative
+            has_valid_structure = (
+                0 < potential_num_parts < 10000 and len(part_info) > potential_num_parts
+            )
+            if has_valid_structure:
+                potential_counts = part_info[1 : potential_num_parts + 1]
+                if potential_counts and all(c >= 0 for c in potential_counts):
+                    num_parts = potential_num_parts
+                    points_per_part = potential_counts
+
+        # Decode coordinates using the part structure
         parts: list[list[tuple[float, float]]] = []
-        current_part: list[tuple[float, float]] = []
         curr_x, curr_y = x_raw, y_raw
-        current_part.append(self.raw_to_coord(curr_x, curr_y))
 
-        points_read = 1
-        while points_read < point_count and pos < len(blob):
-            v1, pos = self.read_varint(blob, pos)
-            v2, pos = self.read_varint(blob, pos)
+        for part_idx in range(num_parts):
+            current_part: list[tuple[float, float]] = []
+            part_point_count = (
+                points_per_part[part_idx] if part_idx < len(points_per_part) else 0
+            )
 
-            if v1 > self.COORD_THRESHOLD:
-                # This is an absolute coordinate - new part!
-                if current_part:
-                    parts.append(current_part)
-                current_part = []
-                curr_x, curr_y = v1, v2
+            # First point of each part
+            if part_idx == 0:
+                # Already read first coordinate
                 current_part.append(self.raw_to_coord(curr_x, curr_y))
+                points_to_read = part_point_count - 1
             else:
-                # Delta encoded coordinate
-                dx = self.zigzag_decode(v1)
-                dy = self.zigzag_decode(v2)
-                curr_x += dx
-                curr_y += dy
+                # Need to read first coordinate of this part
+                points_to_read = part_point_count
+
+            for _ in range(points_to_read):
+                if pos >= len(blob):
+                    break
+
+                v1, pos = self.read_varint(blob, pos)
+                v2, pos = self.read_varint(blob, pos)
+
+                if v1 > self.COORD_THRESHOLD:
+                    # Absolute coordinate reset (encoding optimization)
+                    curr_x, curr_y = v1, v2
+                else:
+                    # Delta encoded coordinate
+                    dx = self.zigzag_decode(v1)
+                    dy = self.zigzag_decode(v2)
+                    curr_x += dx
+                    curr_y += dy
+
                 current_part.append(self.raw_to_coord(curr_x, curr_y))
 
-            points_read += 1
-
-        if current_part:
-            parts.append(current_part)
+            if current_part:
+                parts.append(current_part)
 
         # Determine geometry type from flags
         # Lower 4 bits: 1=Point, 4=Line, 8=Polygon
@@ -214,10 +249,7 @@ class STGeometryDecoder:
         is_polygon = base_type == 8
 
         if is_polygon:
-            if len(parts) == 1:
-                return Polygon(rings=parts)
-            else:
-                return Polygon(rings=parts)
+            return Polygon(rings=parts)
         else:
             if len(parts) == 1:
                 return LineString(points=parts[0])
