@@ -1,6 +1,8 @@
 # Mobile Geodatabase Library
 
-A pure Python library for reading Esri Mobile Geodatabase (.geodatabase) files without requiring Esri's proprietary `libstgeometry_sqlite.so` library.
+!!!! THIS IS SUPER EXPERIMENTAL !!!!
+
+A pure Python library for reading Esri Mobile Geodatabase (.geodatabase) files.
 
 ## Features
 
