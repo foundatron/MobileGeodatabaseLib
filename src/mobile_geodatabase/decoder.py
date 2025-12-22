@@ -14,11 +14,14 @@ Key Technical Facts:
 """
 
 import struct
-from typing import Tuple
 
 from .geometry import (
-    Geometry, Point, LineString, Polygon, MultiLineString,
-    CoordinateSystem, BoundingBox
+    CoordinateSystem,
+    Geometry,
+    LineString,
+    MultiLineString,
+    Point,
+    Polygon,
 )
 
 
@@ -58,7 +61,7 @@ class STGeometryDecoder:
     # For EPSG:3857 with standard origin/scale, coordinates are typically 100-800 billion
     COORD_THRESHOLD = 100_000_000_000  # 100 billion
 
-    def __init__(self, coord_system: CoordinateSystem = None):
+    def __init__(self, coord_system: CoordinateSystem | None = None):
         """
         Initialize the decoder.
 
@@ -68,7 +71,7 @@ class STGeometryDecoder:
         """
         self.cs = coord_system or CoordinateSystem()
 
-    def _read_varint(self, data: bytes, offset: int) -> Tuple[int, int]:
+    def read_varint(self, data: bytes, offset: int) -> tuple[int, int]:
         """
         Read an unsigned varint from data.
 
@@ -90,11 +93,11 @@ class STGeometryDecoder:
             shift += 7
         return result, offset
 
-    def _zigzag_decode(self, n: int) -> int:
+    def zigzag_decode(self, n: int) -> int:
         """Decode zigzag-encoded signed integer"""
         return (n >> 1) ^ -(n & 1)
 
-    def _raw_to_coord(self, raw_x: int, raw_y: int) -> Tuple[float, float]:
+    def raw_to_coord(self, raw_x: int, raw_y: int) -> tuple[float, float]:
         """Convert raw encoded values to real coordinates"""
         scale = self.cs.effective_xy_scale
         x = raw_x / scale + self.cs.x_origin
@@ -120,7 +123,7 @@ class STGeometryDecoder:
         if blob[:4] != self.MAGIC:
             raise ValueError(f"Invalid magic header: {blob[:4].hex()}")
 
-        point_count = struct.unpack('<I', blob[4:8])[0]
+        point_count = struct.unpack("<I", blob[4:8])[0]
 
         if point_count == 0:
             raise ValueError("Empty geometry (point count = 0)")
@@ -135,10 +138,10 @@ class STGeometryDecoder:
         """Decode a point geometry (fixed 30-byte structure)"""
         # Coordinates start at byte 18 for points
         pos = 18
-        x_raw, pos = self._read_varint(blob, pos)
-        y_raw, pos = self._read_varint(blob, pos)
+        x_raw, pos = self.read_varint(blob, pos)
+        y_raw, pos = self.read_varint(blob, pos)
 
-        x, y = self._raw_to_coord(x_raw, y_raw)
+        x, y = self.raw_to_coord(x_raw, y_raw)
         return Point(x=x, y=y)
 
     def _decode_complex(self, blob: bytes, point_count: int) -> Geometry:
@@ -146,20 +149,21 @@ class STGeometryDecoder:
         pos = 8
 
         # Read header varints
-        size_hint, pos = self._read_varint(blob, pos)
-        geom_flags, pos = self._read_varint(blob, pos)
+        _size_hint, pos = self.read_varint(blob, pos)
+        geom_flags, pos = self.read_varint(blob, pos)
 
         # Bounding box (4 large varints)
-        xmin_raw, pos = self._read_varint(blob, pos)
-        ymin_raw, pos = self._read_varint(blob, pos)
-        xmax_raw, pos = self._read_varint(blob, pos)
-        ymax_raw, pos = self._read_varint(blob, pos)
+        _xmin_raw, pos = self.read_varint(blob, pos)
+        _ymin_raw, pos = self.read_varint(blob, pos)
+        _xmax_raw, pos = self.read_varint(blob, pos)
+        _ymax_raw, pos = self.read_varint(blob, pos)
 
         # Part information - variable length structure after bbox
         # All part info varints are small (< 100 billion), coordinates are large
-        part_info = []
+        part_info: list[int] = []
+        x_raw: int = 0
         while pos < len(blob):
-            v, new_pos = self._read_varint(blob, pos)
+            v, new_pos = self.read_varint(blob, pos)
             if v > self.COORD_THRESHOLD:
                 # This is the first X coordinate
                 x_raw = v
@@ -171,18 +175,18 @@ class STGeometryDecoder:
                 raise ValueError("Could not find coordinate start")
 
         # Read first Y coordinate
-        y_raw, pos = self._read_varint(blob, pos)
+        y_raw, pos = self.read_varint(blob, pos)
 
         # Decode coordinates with multi-part detection
-        parts = []
-        current_part = []
+        parts: list[list[tuple[float, float]]] = []
+        current_part: list[tuple[float, float]] = []
         curr_x, curr_y = x_raw, y_raw
-        current_part.append(self._raw_to_coord(curr_x, curr_y))
+        current_part.append(self.raw_to_coord(curr_x, curr_y))
 
         points_read = 1
         while points_read < point_count and pos < len(blob):
-            v1, pos = self._read_varint(blob, pos)
-            v2, pos = self._read_varint(blob, pos)
+            v1, pos = self.read_varint(blob, pos)
+            v2, pos = self.read_varint(blob, pos)
 
             if v1 > self.COORD_THRESHOLD:
                 # This is an absolute coordinate - new part!
@@ -190,14 +194,14 @@ class STGeometryDecoder:
                     parts.append(current_part)
                 current_part = []
                 curr_x, curr_y = v1, v2
-                current_part.append(self._raw_to_coord(curr_x, curr_y))
+                current_part.append(self.raw_to_coord(curr_x, curr_y))
             else:
                 # Delta encoded coordinate
-                dx = self._zigzag_decode(v1)
-                dy = self._zigzag_decode(v2)
+                dx = self.zigzag_decode(v1)
+                dy = self.zigzag_decode(v2)
                 curr_x += dx
                 curr_y += dy
-                current_part.append(self._raw_to_coord(curr_x, curr_y))
+                current_part.append(self.raw_to_coord(curr_x, curr_y))
 
             points_read += 1
 
@@ -222,10 +226,12 @@ class STGeometryDecoder:
                 return MultiLineString(lines=lines)
 
 
-def decode_geometry(blob: bytes,
-                    x_origin: float = -20037700,
-                    y_origin: float = -30241100,
-                    xy_scale: float = 10000) -> Geometry:
+def decode_geometry(
+    blob: bytes,
+    x_origin: float = -20037700,
+    y_origin: float = -30241100,
+    xy_scale: float = 10000,
+) -> Geometry:
     """
     Convenience function to decode an ST_Geometry blob.
 
@@ -243,10 +249,6 @@ def decode_geometry(blob: bytes,
         >>> print(geom.wkt)
         POINT (-13152949.2 5964179.3)
     """
-    cs = CoordinateSystem(
-        x_origin=x_origin,
-        y_origin=y_origin,
-        xy_scale=xy_scale
-    )
+    cs = CoordinateSystem(x_origin=x_origin, y_origin=y_origin, xy_scale=xy_scale)
     decoder = STGeometryDecoder(cs)
     return decoder.decode(blob)

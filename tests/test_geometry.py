@@ -1,9 +1,12 @@
 """Tests for geometry classes."""
 
-import pytest
 from mobile_geodatabase import (
-    Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon,
-    CoordinateSystem, BoundingBox
+    BoundingBox,
+    CoordinateSystem,
+    LineString,
+    MultiLineString,
+    Point,
+    Polygon,
 )
 
 
@@ -75,42 +78,42 @@ class TestLineString:
 
 class TestPolygon:
     def test_polygon_single_ring(self):
-        ring = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
+        ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)]
         poly = Polygon(rings=[ring])
         assert len(poly.rings) == 1
         assert poly.exterior == ring
         assert poly.interiors == []
 
     def test_polygon_with_hole(self):
-        exterior = [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)]
-        hole = [(2, 2), (8, 2), (8, 8), (2, 8), (2, 2)]
+        exterior = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0), (0.0, 0.0)]
+        hole = [(2.0, 2.0), (8.0, 2.0), (8.0, 8.0), (2.0, 8.0), (2.0, 2.0)]
         poly = Polygon(rings=[exterior, hole])
         assert len(poly.rings) == 2
         assert poly.exterior == exterior
         assert poly.interiors == [hole]
 
     def test_polygon_wkt(self):
-        ring = [(0, 0), (10, 0), (10, 10), (0, 0)]
+        ring = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 0.0)]
         poly = Polygon(rings=[ring])
-        assert poly.wkt == "POLYGON ((0 0, 10 0, 10 10, 0 0))"
+        assert poly.wkt == "POLYGON ((0.0 0.0, 10.0 0.0, 10.0 10.0, 0.0 0.0))"
 
 
 class TestMultiLineString:
     def test_multilinestring(self):
-        line1 = LineString(points=[(0, 0), (1, 1)])
-        line2 = LineString(points=[(2, 2), (3, 3)])
+        line1 = LineString(points=[(0.0, 0.0), (1.0, 1.0)])
+        line2 = LineString(points=[(2.0, 2.0), (3.0, 3.0)])
         mls = MultiLineString(lines=[line1, line2])
         assert len(mls) == 2
 
     def test_multilinestring_wkt(self):
-        line1 = LineString(points=[(0, 0), (1, 1)])
-        line2 = LineString(points=[(2, 2), (3, 3)])
+        line1 = LineString(points=[(0.0, 0.0), (1.0, 1.0)])
+        line2 = LineString(points=[(2.0, 2.0), (3.0, 3.0)])
         mls = MultiLineString(lines=[line1, line2])
-        assert mls.wkt == "MULTILINESTRING ((0 0, 1 1), (2 2, 3 3))"
+        assert mls.wkt == "MULTILINESTRING ((0.0 0.0, 1.0 1.0), (2.0 2.0, 3.0 3.0))"
 
     def test_multilinestring_iteration(self):
-        line1 = LineString(points=[(0, 0), (1, 1)])
-        line2 = LineString(points=[(2, 2), (3, 3)])
+        line1 = LineString(points=[(0.0, 0.0), (1.0, 1.0)])
+        line2 = LineString(points=[(2.0, 2.0), (3.0, 3.0)])
         mls = MultiLineString(lines=[line1, line2])
         lines = list(mls)
         assert len(lines) == 2
@@ -128,12 +131,7 @@ class TestCoordinateSystem:
         assert cs.effective_xy_scale == 20000
 
     def test_custom_values(self):
-        cs = CoordinateSystem(
-            x_origin=0,
-            y_origin=0,
-            xy_scale=5000,
-            srid=4326
-        )
+        cs = CoordinateSystem(x_origin=0, y_origin=0, xy_scale=5000, srid=4326)
         assert cs.x_origin == 0
         assert cs.srid == 4326
         assert cs.effective_xy_scale == 10000

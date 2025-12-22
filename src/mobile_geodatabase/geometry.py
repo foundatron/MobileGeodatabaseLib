@@ -4,13 +4,19 @@ Geometry classes for representing spatial data.
 These classes provide simple containers for geometry data with WKT output.
 """
 
-from dataclasses import dataclass, field
-from typing import List, Tuple, Optional, Union
+from collections.abc import Iterator
+from dataclasses import dataclass
 from enum import IntEnum
+
+# Type aliases for coordinate tuples
+Coord2D = tuple[float, float]
+Coord3D = tuple[float, float, float]
+CoordTuple = Coord2D | Coord3D
 
 
 class GeometryType(IntEnum):
     """Esri geometry type codes from st_geometry_columns.geometry_type"""
+
     POINT = 1
     LINESTRING = 2
     POLYGON = 3
@@ -40,13 +46,14 @@ class CoordinateSystem:
         srid: Spatial reference ID (e.g., 3857 for Web Mercator)
         wkt: Well-known text representation of the coordinate system
     """
+
     x_origin: float = -20037700
     y_origin: float = -30241100
     xy_scale: float = 10000
     z_origin: float = -100000
     z_scale: float = 10000
-    srid: Optional[int] = None
-    wkt: Optional[str] = None
+    srid: int | None = None
+    wkt: str | None = None
 
     @property
     def effective_xy_scale(self) -> float:
@@ -57,21 +64,23 @@ class CoordinateSystem:
 @dataclass
 class BoundingBox:
     """Geometry bounding box"""
+
     xmin: float
     ymin: float
     xmax: float
     ymax: float
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[float]:
         return iter((self.xmin, self.ymin, self.xmax, self.ymax))
 
 
 @dataclass
 class Point:
     """A 2D or 3D point"""
+
     x: float
     y: float
-    z: Optional[float] = None
+    z: float | None = None
 
     @property
     def has_z(self) -> bool:
@@ -84,7 +93,7 @@ class Point:
         return f"POINT ({self.x} {self.y})"
 
     @property
-    def coordinates(self) -> Tuple:
+    def coordinates(self) -> CoordTuple:
         if self.z is not None:
             return (self.x, self.y, self.z)
         return (self.x, self.y)
@@ -97,8 +106,9 @@ class Point:
 @dataclass
 class LineString:
     """A line string (polyline)"""
-    points: List[Tuple[float, float]]
-    z_values: Optional[List[float]] = None
+
+    points: list[tuple[float, float]]
+    z_values: list[float] | None = None
 
     @property
     def has_z(self) -> bool:
@@ -107,16 +117,21 @@ class LineString:
     @property
     def wkt(self) -> str:
         if self.z_values:
-            coords = ", ".join(f"{p[0]} {p[1]} {z}"
-                              for p, z in zip(self.points, self.z_values))
+            coords = ", ".join(
+                f"{p[0]} {p[1]} {z}"
+                for p, z in zip(self.points, self.z_values, strict=False)
+            )
             return f"LINESTRING Z ({coords})"
         coords = ", ".join(f"{p[0]} {p[1]}" for p in self.points)
         return f"LINESTRING ({coords})"
 
     @property
-    def coordinates(self) -> List[Tuple]:
+    def coordinates(self) -> list[CoordTuple]:
         if self.z_values:
-            return [(p[0], p[1], z) for p, z in zip(self.points, self.z_values)]
+            return [
+                (p[0], p[1], z)
+                for p, z in zip(self.points, self.z_values, strict=False)
+            ]
         return list(self.points)
 
     @property
@@ -132,16 +147,17 @@ class LineString:
 @dataclass
 class Polygon:
     """A polygon with optional holes"""
-    rings: List[List[Tuple[float, float]]]
-    z_values: Optional[List[List[float]]] = None
+
+    rings: list[list[tuple[float, float]]]
+    z_values: list[list[float]] | None = None
 
     @property
-    def exterior(self) -> List[Tuple[float, float]]:
+    def exterior(self) -> list[tuple[float, float]]:
         """The exterior ring (first ring)"""
         return self.rings[0] if self.rings else []
 
     @property
-    def interiors(self) -> List[List[Tuple[float, float]]]:
+    def interiors(self) -> list[list[tuple[float, float]]]:
         """Interior rings (holes)"""
         return self.rings[1:] if len(self.rings) > 1 else []
 
@@ -151,11 +167,13 @@ class Polygon:
 
     @property
     def wkt(self) -> str:
-        ring_strs = []
+        ring_strs: list[str] = []
         for i, ring in enumerate(self.rings):
             if self.z_values and i < len(self.z_values):
-                coords = ", ".join(f"{p[0]} {p[1]} {z}"
-                                  for p, z in zip(ring, self.z_values[i]))
+                coords = ", ".join(
+                    f"{p[0]} {p[1]} {z}"
+                    for p, z in zip(ring, self.z_values[i], strict=False)
+                )
             else:
                 coords = ", ".join(f"{p[0]} {p[1]}" for p in ring)
             ring_strs.append(f"({coords})")
@@ -165,12 +183,17 @@ class Polygon:
         return f"POLYGON ({', '.join(ring_strs)})"
 
     @property
-    def coordinates(self) -> List[List[Tuple]]:
+    def coordinates(self) -> list[list[CoordTuple]]:
         if self.z_values:
-            result = []
+            result: list[list[CoordTuple]] = []
             for i, ring in enumerate(self.rings):
                 if i < len(self.z_values):
-                    result.append([(p[0], p[1], z) for p, z in zip(ring, self.z_values[i])])
+                    result.append(
+                        [
+                            (p[0], p[1], z)
+                            for p, z in zip(ring, self.z_values[i], strict=False)
+                        ]
+                    )
                 else:
                     result.append(list(ring))
             return result
@@ -187,7 +210,8 @@ class Polygon:
 @dataclass
 class MultiPoint:
     """Multiple points"""
-    points: List[Point]
+
+    points: list[Point]
 
     @property
     def has_z(self) -> bool:
@@ -202,7 +226,7 @@ class MultiPoint:
         return f"MULTIPOINT ({coords})"
 
     @property
-    def coordinates(self) -> List[Tuple]:
+    def coordinates(self) -> list[CoordTuple]:
         return [p.coordinates for p in self.points]
 
     @property
@@ -214,27 +238,30 @@ class MultiPoint:
     def __len__(self) -> int:
         return len(self.points)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Point]:
         return iter(self.points)
 
 
 @dataclass
 class MultiLineString:
     """Multiple line strings"""
-    lines: List[LineString]
+
+    lines: list[LineString]
 
     @property
     def has_z(self) -> bool:
-        return any(l.has_z for l in self.lines)
+        return any(line.has_z for line in self.lines)
 
     @property
     def wkt(self) -> str:
         has_z = self.has_z
-        line_strs = []
+        line_strs: list[str] = []
         for line in self.lines:
             if has_z and line.z_values:
-                coords = ", ".join(f"{p[0]} {p[1]} {z}"
-                                  for p, z in zip(line.points, line.z_values))
+                coords = ", ".join(
+                    f"{p[0]} {p[1]} {z}"
+                    for p, z in zip(line.points, line.z_values, strict=False)
+                )
             else:
                 coords = ", ".join(f"{p[0]} {p[1]}" for p in line.points)
             line_strs.append(f"({coords})")
@@ -244,7 +271,7 @@ class MultiLineString:
         return f"MULTILINESTRING ({', '.join(line_strs)})"
 
     @property
-    def coordinates(self) -> List[List[Tuple]]:
+    def coordinates(self) -> list[list[CoordTuple]]:
         return [line.coordinates for line in self.lines]
 
     @property
@@ -254,20 +281,21 @@ class MultiLineString:
             min(b.xmin for b in all_bounds),
             min(b.ymin for b in all_bounds),
             max(b.xmax for b in all_bounds),
-            max(b.ymax for b in all_bounds)
+            max(b.ymax for b in all_bounds),
         )
 
     def __len__(self) -> int:
         return len(self.lines)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[LineString]:
         return iter(self.lines)
 
 
 @dataclass
 class MultiPolygon:
     """Multiple polygons"""
-    polygons: List[Polygon]
+
+    polygons: list[Polygon]
 
     @property
     def has_z(self) -> bool:
@@ -276,13 +304,15 @@ class MultiPolygon:
     @property
     def wkt(self) -> str:
         has_z = self.has_z
-        poly_strs = []
+        poly_strs: list[str] = []
         for poly in self.polygons:
-            ring_strs = []
+            ring_strs: list[str] = []
             for i, ring in enumerate(poly.rings):
                 if has_z and poly.z_values and i < len(poly.z_values):
-                    coords = ", ".join(f"{p[0]} {p[1]} {z}"
-                                      for p, z in zip(ring, poly.z_values[i]))
+                    coords = ", ".join(
+                        f"{p[0]} {p[1]} {z}"
+                        for p, z in zip(ring, poly.z_values[i], strict=False)
+                    )
                 else:
                     coords = ", ".join(f"{p[0]} {p[1]}" for p in ring)
                 ring_strs.append(f"({coords})")
@@ -293,7 +323,7 @@ class MultiPolygon:
         return f"MULTIPOLYGON ({', '.join(poly_strs)})"
 
     @property
-    def coordinates(self) -> List[List[List[Tuple]]]:
+    def coordinates(self) -> list[list[list[CoordTuple]]]:
         return [poly.coordinates for poly in self.polygons]
 
     @property
@@ -303,18 +333,18 @@ class MultiPolygon:
             min(b.xmin for b in all_bounds),
             min(b.ymin for b in all_bounds),
             max(b.xmax for b in all_bounds),
-            max(b.ymax for b in all_bounds)
+            max(b.ymax for b in all_bounds),
         )
 
     def __len__(self) -> int:
         return len(self.polygons)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Polygon]:
         return iter(self.polygons)
 
 
 # Type alias for any geometry
-Geometry = Union[Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon]
+Geometry = Point | LineString | Polygon | MultiPoint | MultiLineString | MultiPolygon
 
 
 def geometry_type_name(geom: Geometry) -> str:

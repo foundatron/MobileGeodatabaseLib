@@ -9,14 +9,20 @@ This module provides functions to convert geometries to various formats:
 
 import json
 import struct
-from typing import Any, Dict, Iterator, List, Optional, Union
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
-from .geometry import (
-    Geometry, Point, LineString, Polygon,
-    MultiPoint, MultiLineString, MultiPolygon
-)
 from .database import Feature, GeoDatabase
-
+from .geometry import (
+    Geometry,
+    LineString,
+    MultiLineString,
+    MultiPoint,
+    MultiPolygon,
+    Point,
+    Polygon,
+)
 
 # WKB constants
 WKB_POINT = 1
@@ -61,74 +67,68 @@ def to_wkb(geom: Geometry, big_endian: bool = False) -> bytes:
         >>> pt = Point(x=-122.0, y=47.0)
         >>> wkb = to_wkb(pt)
     """
-    byte_order = '>' if big_endian else '<'
+    byte_order = ">" if big_endian else "<"
     bo_flag = 0 if big_endian else 1
 
     def write_point_coords(p: Point) -> bytes:
         if p.has_z:
-            return struct.pack(f'{byte_order}ddd', p.x, p.y, p.z)
-        return struct.pack(f'{byte_order}dd', p.x, p.y)
-
-    def write_ring(ring: List[tuple]) -> bytes:
-        data = struct.pack(f'{byte_order}I', len(ring))
-        for coord in ring:
-            if len(coord) == 3:
-                data += struct.pack(f'{byte_order}ddd', *coord)
-            else:
-                data += struct.pack(f'{byte_order}dd', *coord)
-        return data
+            return struct.pack(f"{byte_order}ddd", p.x, p.y, p.z)
+        return struct.pack(f"{byte_order}dd", p.x, p.y)
 
     if isinstance(geom, Point):
         wkb_type = WKB_POINT | (WKB_Z_FLAG if geom.has_z else 0)
-        return struct.pack(f'{byte_order}bI', bo_flag, wkb_type) + write_point_coords(geom)
+        return struct.pack(f"{byte_order}bI", bo_flag, wkb_type) + write_point_coords(
+            geom
+        )
 
     elif isinstance(geom, LineString):
         wkb_type = WKB_LINESTRING | (WKB_Z_FLAG if geom.has_z else 0)
-        data = struct.pack(f'{byte_order}bII', bo_flag, wkb_type, len(geom.points))
+        data = struct.pack(f"{byte_order}bII", bo_flag, wkb_type, len(geom.points))
         for i, pt in enumerate(geom.points):
             if geom.has_z and geom.z_values:
-                data += struct.pack(f'{byte_order}ddd', pt[0], pt[1], geom.z_values[i])
+                data += struct.pack(f"{byte_order}ddd", pt[0], pt[1], geom.z_values[i])
             else:
-                data += struct.pack(f'{byte_order}dd', pt[0], pt[1])
+                data += struct.pack(f"{byte_order}dd", pt[0], pt[1])
         return data
 
     elif isinstance(geom, Polygon):
         wkb_type = WKB_POLYGON | (WKB_Z_FLAG if geom.has_z else 0)
-        data = struct.pack(f'{byte_order}bII', bo_flag, wkb_type, len(geom.rings))
+        data = struct.pack(f"{byte_order}bII", bo_flag, wkb_type, len(geom.rings))
         for i, ring in enumerate(geom.rings):
-            data += struct.pack(f'{byte_order}I', len(ring))
+            data += struct.pack(f"{byte_order}I", len(ring))
             for j, pt in enumerate(ring):
                 if geom.has_z and geom.z_values and i < len(geom.z_values):
-                    data += struct.pack(f'{byte_order}ddd', pt[0], pt[1], geom.z_values[i][j])
+                    data += struct.pack(
+                        f"{byte_order}ddd", pt[0], pt[1], geom.z_values[i][j]
+                    )
                 else:
-                    data += struct.pack(f'{byte_order}dd', pt[0], pt[1])
+                    data += struct.pack(f"{byte_order}dd", pt[0], pt[1])
         return data
 
     elif isinstance(geom, MultiPoint):
         wkb_type = WKB_MULTIPOINT | (WKB_Z_FLAG if geom.has_z else 0)
-        data = struct.pack(f'{byte_order}bII', bo_flag, wkb_type, len(geom.points))
+        data = struct.pack(f"{byte_order}bII", bo_flag, wkb_type, len(geom.points))
         for pt in geom.points:
             data += to_wkb(pt, big_endian)
         return data
 
     elif isinstance(geom, MultiLineString):
         wkb_type = WKB_MULTILINESTRING | (WKB_Z_FLAG if geom.has_z else 0)
-        data = struct.pack(f'{byte_order}bII', bo_flag, wkb_type, len(geom.lines))
+        data = struct.pack(f"{byte_order}bII", bo_flag, wkb_type, len(geom.lines))
         for line in geom.lines:
             data += to_wkb(line, big_endian)
         return data
 
-    elif isinstance(geom, MultiPolygon):
-        wkb_type = WKB_MULTIPOLYGON | (WKB_Z_FLAG if geom.has_z else 0)
-        data = struct.pack(f'{byte_order}bII', bo_flag, wkb_type, len(geom.polygons))
-        for poly in geom.polygons:
-            data += to_wkb(poly, big_endian)
-        return data
+    # MultiPolygon is the only remaining case
+    assert isinstance(geom, MultiPolygon)
+    wkb_type = WKB_MULTIPOLYGON | (WKB_Z_FLAG if geom.has_z else 0)
+    data = struct.pack(f"{byte_order}bII", bo_flag, wkb_type, len(geom.polygons))
+    for poly in geom.polygons:
+        data += to_wkb(poly, big_endian)
+    return data
 
-    raise ValueError(f"Unsupported geometry type: {type(geom)}")
 
-
-def to_geojson_geometry(geom: Geometry) -> Dict[str, Any]:
+def to_geojson_geometry(geom: Geometry) -> dict[str, Any]:
     """
     Convert geometry to GeoJSON geometry object.
 
@@ -144,26 +144,26 @@ def to_geojson_geometry(geom: Geometry) -> Dict[str, Any]:
         {'type': 'Point', 'coordinates': [-122.0, 47.0]}
     """
     if isinstance(geom, Point):
-        coords = [geom.x, geom.y]
-        if geom.has_z:
+        coords: list[float] = [geom.x, geom.y]
+        if geom.z is not None:
             coords.append(geom.z)
         return {"type": "Point", "coordinates": coords}
 
     elif isinstance(geom, LineString):
-        coords = []
+        line_coords: list[list[float]] = []
         for i, pt in enumerate(geom.points):
-            coord = [pt[0], pt[1]]
-            if geom.has_z and geom.z_values:
+            coord: list[float] = [pt[0], pt[1]]
+            if geom.z_values is not None and i < len(geom.z_values):
                 coord.append(geom.z_values[i])
-            coords.append(coord)
-        return {"type": "LineString", "coordinates": coords}
+            line_coords.append(coord)
+        return {"type": "LineString", "coordinates": line_coords}
 
     elif isinstance(geom, Polygon):
-        rings = []
+        rings: list[list[list[float]]] = []
         for i, ring in enumerate(geom.rings):
-            ring_coords = []
+            ring_coords: list[list[float]] = []
             for j, pt in enumerate(ring):
-                coord = [pt[0], pt[1]]
+                coord: list[float] = [pt[0], pt[1]]
                 if geom.has_z and geom.z_values and i < len(geom.z_values):
                     coord.append(geom.z_values[i][j])
                 ring_coords.append(coord)
@@ -171,45 +171,43 @@ def to_geojson_geometry(geom: Geometry) -> Dict[str, Any]:
         return {"type": "Polygon", "coordinates": rings}
 
     elif isinstance(geom, MultiPoint):
-        coords = []
+        mp_coords: list[list[float]] = []
         for pt in geom.points:
-            coord = [pt.x, pt.y]
-            if pt.has_z:
+            coord: list[float] = [pt.x, pt.y]
+            if pt.z is not None:
                 coord.append(pt.z)
-            coords.append(coord)
-        return {"type": "MultiPoint", "coordinates": coords}
+            mp_coords.append(coord)
+        return {"type": "MultiPoint", "coordinates": mp_coords}
 
     elif isinstance(geom, MultiLineString):
-        lines = []
+        lines: list[list[list[float]]] = []
         for line in geom.lines:
-            line_coords = []
+            mls_line_coords: list[list[float]] = []
             for i, pt in enumerate(line.points):
-                coord = [pt[0], pt[1]]
+                coord: list[float] = [pt[0], pt[1]]
                 if line.has_z and line.z_values:
                     coord.append(line.z_values[i])
-                line_coords.append(coord)
-            lines.append(line_coords)
+                mls_line_coords.append(coord)
+            lines.append(mls_line_coords)
         return {"type": "MultiLineString", "coordinates": lines}
 
-    elif isinstance(geom, MultiPolygon):
-        polys = []
-        for poly in geom.polygons:
-            rings = []
-            for i, ring in enumerate(poly.rings):
-                ring_coords = []
-                for j, pt in enumerate(ring):
-                    coord = [pt[0], pt[1]]
-                    if poly.has_z and poly.z_values and i < len(poly.z_values):
-                        coord.append(poly.z_values[i][j])
-                    ring_coords.append(coord)
-                rings.append(ring_coords)
-            polys.append(rings)
-        return {"type": "MultiPolygon", "coordinates": polys}
-
-    raise ValueError(f"Unsupported geometry type: {type(geom)}")
+    # MultiPolygon is the only remaining case
+    polys: list[list[list[list[float]]]] = []
+    for poly in geom.polygons:
+        mpoly_rings: list[list[list[float]]] = []
+        for i, ring in enumerate(poly.rings):
+            mpoly_ring_coords: list[list[float]] = []
+            for j, pt in enumerate(ring):
+                coord: list[float] = [pt[0], pt[1]]
+                if poly.has_z and poly.z_values and i < len(poly.z_values):
+                    coord.append(poly.z_values[i][j])
+                mpoly_ring_coords.append(coord)
+            mpoly_rings.append(mpoly_ring_coords)
+        polys.append(mpoly_rings)
+    return {"type": "MultiPolygon", "coordinates": polys}
 
 
-def feature_to_geojson(feature: Feature) -> Dict[str, Any]:
+def feature_to_geojson(feature: Feature) -> dict[str, Any]:
     """
     Convert a Feature to a GeoJSON Feature object.
 
@@ -219,10 +217,10 @@ def feature_to_geojson(feature: Feature) -> Dict[str, Any]:
     Returns:
         GeoJSON Feature dictionary
     """
-    geojson = {
+    geojson: dict[str, Any] = {
         "type": "Feature",
         "properties": feature.attributes,
-        "geometry": None
+        "geometry": None,
     }
 
     if feature.geometry:
@@ -234,8 +232,9 @@ def feature_to_geojson(feature: Feature) -> Dict[str, Any]:
     return geojson
 
 
-def features_to_geojson(features: Iterator[Feature],
-                        crs: Optional[str] = None) -> Dict[str, Any]:
+def features_to_geojson(
+    features: Iterator[Feature], crs: str | None = None
+) -> dict[str, Any]:
     """
     Convert an iterable of Features to a GeoJSON FeatureCollection.
 
@@ -248,25 +247,23 @@ def features_to_geojson(features: Iterator[Feature],
     """
     feature_list = [feature_to_geojson(f) for f in features]
 
-    geojson = {
-        "type": "FeatureCollection",
-        "features": feature_list
-    }
+    geojson: dict[str, Any] = {"type": "FeatureCollection", "features": feature_list}
 
     if crs:
-        geojson["crs"] = {
-            "type": "name",
-            "properties": {"name": crs}
-        }
+        geojson["crs"] = {"type": "name", "properties": {"name": crs}}
 
     return geojson
 
 
-def write_geojson(gdb: GeoDatabase,
-                  table_name: str,
-                  output_path: str,
-                  indent: Optional[int] = 2,
-                  **kwargs) -> int:
+def write_geojson(
+    gdb: GeoDatabase,
+    table_name: str,
+    output_path: str,
+    indent: int | None = 2,
+    columns: list[str] | None = None,
+    where: str | None = None,
+    limit: int | None = None,
+) -> int:
     """
     Export a geodatabase table to a GeoJSON file.
 
@@ -275,7 +272,9 @@ def write_geojson(gdb: GeoDatabase,
         table_name: Name of table to export
         output_path: Path to output GeoJSON file
         indent: JSON indentation (None for compact)
-        **kwargs: Additional arguments passed to read_table
+        columns: List of attribute columns to include (None for all)
+        where: Optional SQL WHERE clause (without 'WHERE' keyword)
+        limit: Maximum number of features to return
 
     Returns:
         Number of features written
@@ -289,19 +288,25 @@ def write_geojson(gdb: GeoDatabase,
     if table and table.coord_system and table.coord_system.srid:
         crs = f"EPSG:{table.coord_system.srid}"
 
-    features = list(gdb.read_table(table_name, **kwargs))
+    features = list(
+        gdb.read_table(table_name, columns=columns, where=where, limit=limit)
+    )
     geojson = features_to_geojson(iter(features), crs=crs)
 
-    with open(output_path, 'w') as f:
+    with Path(output_path).open("w") as f:
         json.dump(geojson, f, indent=indent)
 
     return len(features)
 
 
-def write_geojsonl(gdb: GeoDatabase,
-                   table_name: str,
-                   output_path: str,
-                   **kwargs) -> int:
+def write_geojsonl(
+    gdb: GeoDatabase,
+    table_name: str,
+    output_path: str,
+    columns: list[str] | None = None,
+    where: str | None = None,
+    limit: int | None = None,
+) -> int:
     """
     Export a geodatabase table to a GeoJSON Lines (newline-delimited) file.
 
@@ -311,15 +316,19 @@ def write_geojsonl(gdb: GeoDatabase,
         gdb: GeoDatabase instance
         table_name: Name of table to export
         output_path: Path to output .geojsonl file
-        **kwargs: Additional arguments passed to read_table
+        columns: List of attribute columns to include (None for all)
+        where: Optional SQL WHERE clause (without 'WHERE' keyword)
+        limit: Maximum number of features to return
 
     Returns:
         Number of features written
     """
     count = 0
-    with open(output_path, 'w') as f:
-        for feature in gdb.read_table(table_name, **kwargs):
+    with Path(output_path).open("w") as f:
+        for feature in gdb.read_table(
+            table_name, columns=columns, where=where, limit=limit
+        ):
             geojson = feature_to_geojson(feature)
-            f.write(json.dumps(geojson) + '\n')
+            f.write(json.dumps(geojson) + "\n")
             count += 1
     return count

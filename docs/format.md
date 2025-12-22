@@ -10,19 +10,22 @@ The ST_Geometry blob format used in Esri Mobile Geodatabases (.geodatabase files
 ### Key Discoveries
 
 1. **Coordinates use 2x the metadata scale factor** - When XML says `<XYScale>10000</XYScale>`, the actual encoding uses 20,000
-2. **Coordinate threshold is ~100 billion** - Raw coordinate values are in the 120-740 billion range, not millions
-3. **Multi-part detection via absolute coordinates** - Each part starts with absolute X,Y values (> 100B), subsequent points are delta-encoded
+1. **Coordinate threshold is ~100 billion** - Raw coordinate values are in the 120-740 billion range, not millions
+1. **Multi-part detection via absolute coordinates** - Each part starts with absolute X,Y values (> 100B), subsequent points are delta-encoded
 
 ## File Format Overview
 
 ### Database Structure
+
 - Standard SQLite database
 - Geometry stored in `shape` column as blobs
 - Metadata in `st_geometry_columns` table
 - Coordinate system info embedded in XML within `GDB_Items.Definition` column
 
 ### Coordinate Reference System
+
 From the XML definitions (EPSG:3857 Web Mercator):
+
 ```xml
 <XOrigin>-20037700</XOrigin>
 <YOrigin>-30241100</YOrigin>
@@ -36,27 +39,29 @@ From the XML definitions (EPSG:3857 Web Mercator):
 ## Blob Structure
 
 ### Common Header (8 bytes)
-| Offset | Size | Type | Description |
-|--------|------|------|-------------|
-| 0-3 | 4 | bytes | Magic header: `0x64 0x11 0x0F 0x00` |
-| 4-7 | 4 | uint32 LE | Total point count in geometry |
+
+| Offset | Size | Type      | Description                         |
+| ------ | ---- | --------- | ----------------------------------- |
+| 0-3    | 4    | bytes     | Magic header: `0x64 0x11 0x0F 0x00` |
+| 4-7    | 4    | uint32 LE | Total point count in geometry       |
 
 ### Geometry Type Flags
 
 The first varint after the header is a size hint. The second varint is `geom_flags`:
 
-| Flags (decimal) | Lower 4 bits | Upper bits | Meaning |
-|-----------------|--------------|------------|---------|
-| 1 | 1 | 0 | Point |
-| 4 | 4 | 0 | Line/Polyline |
-| 8 | 8 | 0 | Polygon |
-| 68 | 4 | 4 | Line with Z values |
-| 72 | 8 | 4 | Polygon with Z values |
+| Flags (decimal) | Lower 4 bits | Upper bits | Meaning               |
+| --------------- | ------------ | ---------- | --------------------- |
+| 1               | 1            | 0          | Point                 |
+| 4               | 4            | 0          | Line/Polyline         |
+| 8               | 8            | 0          | Polygon               |
+| 68              | 4            | 4          | Line with Z values    |
+| 72              | 8            | 4          | Polygon with Z values |
 
 Lower 4 bits indicate geometry type (1=Point, 4=Line, 8=Polygon).
 Upper bit 4 (value 64) indicates Z values or complex structure.
 
 ### Point Geometry (30 bytes fixed)
+
 ```
 Bytes 0-7:   Standard header
 Bytes 8-17:  Point header (type flags, size=12, padding)
@@ -64,6 +69,7 @@ Bytes 18-29: Coordinates (two 6-byte varints: X, Y)
 ```
 
 ### Line/Polygon Geometry (variable length)
+
 ```
 Bytes 0-7:   Standard header
 Byte 8+:     Varints in sequence:
@@ -79,7 +85,9 @@ Byte 8+:     Varints in sequence:
 ## Coordinate Encoding
 
 ### Varint Format
+
 Uses standard Protocol Buffers / FGDB-style unsigned varints:
+
 - 7 bits per byte for value
 - High bit (0x80) indicates continuation
 - Little-endian bit ordering
@@ -110,12 +118,14 @@ Use a threshold of **100 billion (1e11)** to distinguish coordinates from metada
 ### Coordinate Decoding Formula
 
 **For absolute coordinates:**
+
 ```python
 x = raw_x / (XY_SCALE * 2) + X_ORIGIN
 y = raw_y / (XY_SCALE * 2) + Y_ORIGIN
 ```
 
 **For delta-encoded coordinates (zigzag):**
+
 ```python
 def zigzag_decode(n):
     return (n >> 1) ^ -(n & 1)
@@ -133,10 +143,11 @@ y = curr_y / (XY_SCALE * 2) + Y_ORIGIN
 Multi-part geometries (MultiLineString, Polygon with holes, MultiPolygon) encode each part's first coordinate as an **absolute value** rather than a delta.
 
 **Detection algorithm:**
+
 1. Read first coordinate pair as absolute values
-2. For subsequent coordinates, read varint pair (v1, v2)
-3. If v1 > 100 billion: This is a new part, treat (v1, v2) as absolute coordinate
-4. If v1 < 100 billion: This is a delta, decode with zigzag and add to current position
+1. For subsequent coordinates, read varint pair (v1, v2)
+1. If v1 > 100 billion: This is a new part, treat (v1, v2) as absolute coordinate
+1. If v1 < 100 billion: This is a delta, decode with zigzag and add to current position
 
 ```python
 COORD_THRESHOLD = 100_000_000_000  # 100 billion
@@ -160,28 +171,33 @@ while points_read < point_count:
 
 ## Verified Working (100% Success)
 
-| Geometry Type | Records Tested | Success Rate |
-|---------------|----------------|--------------|
-| Point | 478 | 100% |
-| MultiLineStringZ | 41,568 | 100% |
-| Polygon | 284 | 100% |
-| PolygonZ | 9,565 | 100% |
-| **Total** | **51,895** | **100%** |
+| Geometry Type    | Records Tested | Success Rate |
+| ---------------- | -------------- | ------------ |
+| Point            | 478            | 100%         |
+| MultiLineStringZ | 41,568         | 100%         |
+| Polygon          | 284            | 100%         |
+| PolygonZ         | 9,565          | 100%         |
+| **Total**        | **51,895**     | **100%**     |
 
 All coordinates validated against expected range for Washington State (EPSG:3857):
+
 - X: -14,000,000 to -12,000,000
 - Y: 5,500,000 to 6,500,000
 
 ## Remaining Work / Not Yet Decoded
 
 ### Z Values
+
 For geometry types with Z (1006, 2005, etc.), trailing bytes contain Z coordinates. The encoding appears to be:
+
 - Positioned after all XY coordinate data
 - Possibly float64 values (observed pattern: `41 00 00 00 00 00...`)
 - Not yet fully decoded but not blocking XY coordinate extraction
 
 ### Part Info Structure
+
 The varints between bounding box and first coordinate contain part metadata. Observed patterns:
+
 - Includes something like `coord_size`, `num_parts`
 - Followed by part indices or point counts per part
 - Exact meaning of each field not fully determined
@@ -192,10 +208,11 @@ The varints between bounding box and first coordinate contain part metadata. Obs
 Point blob: `64110F000100000004010C0000000100000081E88CFA8004A2CBB9C08915`
 
 1. Header: `64 11 0F 00` = magic
-2. Count: `01 00 00 00` = 1 point
-3. Coords at byte 18: `81 E8 8C FA 80 04` = varint 137,695,015,937
+1. Count: `01 00 00 00` = 1 point
+1. Coords at byte 18: `81 E8 8C FA 80 04` = varint 137,695,015,937
 
 Applying formula:
+
 ```
 X = 137,695,015,937 / 20,000 + (-20,037,700) = -13,152,949.20
 Y = 724,105,586,082 / 20,000 + (-30,241,100) = 5,964,179.30
@@ -207,32 +224,33 @@ These coordinates are valid for Washington State in EPSG:3857!
 
 The Mobile Geodatabase format shares similarities with the File Geodatabase format documented at https://github.com/rouault/dump_gdbtable/wiki/FGDB-Spec:
 
-| Feature | FGDB | Mobile Geodatabase |
-|---------|------|-------------------|
-| Varint encoding | Yes | Yes (same format) |
-| Zigzag for signed | Yes | Yes |
-| Delta encoding | Yes | Yes |
-| Coordinate scale | As specified | 2x metadata value |
-| Header structure | Different | `64 11 0F 00` magic |
-| Bounding box | Yes | Yes (after flags) |
+| Feature              | FGDB         | Mobile Geodatabase       |
+| -------------------- | ------------ | ------------------------ |
+| Varint encoding      | Yes          | Yes (same format)        |
+| Zigzag for signed    | Yes          | Yes                      |
+| Delta encoding       | Yes          | Yes                      |
+| Coordinate scale     | As specified | 2x metadata value        |
+| Header structure     | Different    | `64 11 0F 00` magic      |
+| Bounding box         | Yes          | Yes (after flags)        |
 | Multi-part detection | Part indices | Absolute coord detection |
 
 ## Files
 
 1. `st_geometry_decoder.py` - Complete Python decoder
-2. `findings.md` - This document
+1. `findings.md` - This document
 
 ## Test Database
 
 Location: `/tmp/geodatabase_test/replica.geodatabase`
 
 Tables with geometry:
-| Table | Type | Records | Description |
-|-------|------|---------|-------------|
-| sportPamphletWaterAccessSites | Point (1) | 478 | Fishing access points |
-| SportPamphletStream | MultiLineStringZ (2005) | 41,568 | Streams |
-| sportPamphletCities | Polygon (6) | 284 | City boundaries |
-| SportPamphletLake | PolygonZ (1006) | 9,565 | Lakes |
+
+| Table                         | Type                    | Records | Description           |
+| ----------------------------- | ----------------------- | ------- | --------------------- |
+| sportPamphletWaterAccessSites | Point (1)               | 478     | Fishing access points |
+| SportPamphletStream           | MultiLineStringZ (2005) | 41,568  | Streams               |
+| sportPamphletCities           | Polygon (6)             | 284     | City boundaries       |
+| SportPamphletLake             | PolygonZ (1006)         | 9,565   | Lakes                 |
 
 ## Usage
 

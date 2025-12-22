@@ -7,15 +7,14 @@ Usage:
     mobile-geodatabase dump <file.geodatabase> <table> [--format FORMAT]
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
-from typing import Optional
 
 import click
 
+from .converters import to_wkt, write_geojson, write_geojsonl
 from .database import GeoDatabase
-from .converters import write_geojson, write_geojsonl, to_wkt
 
 
 @click.group()
@@ -31,8 +30,8 @@ def main():
 
 
 @main.command()
-@click.argument('geodatabase', type=click.Path(exists=True))
-@click.option('--json', 'output_json', is_flag=True, help='Output as JSON')
+@click.argument("geodatabase", type=click.Path(exists=True))
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 def info(geodatabase: str, output_json: bool):
     """
     Display information about a geodatabase file.
@@ -46,12 +45,9 @@ def info(geodatabase: str, output_json: bool):
         sys.exit(1)
 
     if output_json:
-        data = {
-            "path": str(gdb.path),
-            "tables": []
-        }
+        tables_list: list[dict[str, str | int | list[str] | None]] = []
         for table in gdb.tables:
-            table_info = {
+            table_info: dict[str, str | int | list[str] | None] = {
                 "name": table.name,
                 "row_count": table.row_count,
                 "columns": table.columns,
@@ -61,7 +57,11 @@ def info(geodatabase: str, output_json: bool):
                 table_info["geometry_type"] = table.geometry_type
                 if table.coord_system and table.coord_system.srid:
                     table_info["srid"] = table.coord_system.srid
-            data["tables"].append(table_info)
+            tables_list.append(table_info)
+        data: dict[str, str | list[dict[str, str | int | list[str] | None]]] = {
+            "path": str(gdb.path),
+            "tables": tables_list,
+        }
         click.echo(json.dumps(data, indent=2))
     else:
         click.echo(f"Geodatabase: {gdb.path.name}")
@@ -97,18 +97,30 @@ def info(geodatabase: str, output_json: bool):
 
 
 @main.command()
-@click.argument('geodatabase', type=click.Path(exists=True))
-@click.argument('output', type=click.Path())
-@click.option('--table', '-t', help='Table name to convert (required if multiple tables)')
-@click.option('--format', '-f', 'output_format',
-              type=click.Choice(['geojson', 'geojsonl']),
-              help='Output format (default: auto-detect from extension)')
-@click.option('--limit', '-n', type=int, help='Limit number of features')
-@click.option('--where', '-w', help='SQL WHERE clause to filter features')
-@click.option('--compact', is_flag=True, help='Compact JSON output (no indentation)')
-def convert(geodatabase: str, output: str, table: Optional[str],
-            output_format: Optional[str], limit: Optional[int],
-            where: Optional[str], compact: bool):
+@click.argument("geodatabase", type=click.Path(exists=True))
+@click.argument("output", type=click.Path())
+@click.option(
+    "--table", "-t", help="Table name to convert (required if multiple tables)"
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["geojson", "geojsonl"]),
+    help="Output format (default: auto-detect from extension)",
+)
+@click.option("--limit", "-n", type=int, help="Limit number of features")
+@click.option("--where", "-w", help="SQL WHERE clause to filter features")
+@click.option("--compact", is_flag=True, help="Compact JSON output (no indentation)")
+def convert(
+    geodatabase: str,
+    output: str,
+    table: str | None,
+    output_format: str | None,
+    limit: int | None,
+    where: str | None,
+    compact: bool,
+):
     """
     Convert geodatabase table to GeoJSON.
 
@@ -141,7 +153,9 @@ def convert(geodatabase: str, output: str, table: Optional[str],
     elif len(geom_tables) == 1:
         table_name = geom_tables[0].name
     else:
-        click.echo("Multiple geometry tables found. Please specify one with --table:", err=True)
+        click.echo(
+            "Multiple geometry tables found. Please specify one with --table:", err=True
+        )
         for t in geom_tables:
             click.echo(f"  {t.name} ({t.geometry_type}, {t.row_count:,} rows)")
         sys.exit(1)
@@ -150,27 +164,22 @@ def convert(geodatabase: str, output: str, table: Optional[str],
     output_path = Path(output)
     if output_format:
         fmt = output_format
-    elif output_path.suffix.lower() == '.geojsonl':
-        fmt = 'geojsonl'
+    elif output_path.suffix.lower() == ".geojsonl":
+        fmt = "geojsonl"
     else:
-        fmt = 'geojson'
-
-    # Build kwargs
-    kwargs = {}
-    if limit:
-        kwargs['limit'] = limit
-    if where:
-        kwargs['where'] = where
+        fmt = "geojson"
 
     # Do the conversion
     click.echo(f"Converting {table_name} to {fmt}...")
 
     try:
-        if fmt == 'geojsonl':
-            count = write_geojsonl(gdb, table_name, output, **kwargs)
+        if fmt == "geojsonl":
+            count = write_geojsonl(gdb, table_name, output, where=where, limit=limit)
         else:
             indent = None if compact else 2
-            count = write_geojson(gdb, table_name, output, indent=indent, **kwargs)
+            count = write_geojson(
+                gdb, table_name, output, indent=indent, where=where, limit=limit
+            )
 
         click.echo(f"Wrote {count:,} features to {output}")
 
@@ -182,17 +191,27 @@ def convert(geodatabase: str, output: str, table: Optional[str],
 
 
 @main.command()
-@click.argument('geodatabase', type=click.Path(exists=True))
-@click.argument('table')
-@click.option('--format', '-f', 'output_format',
-              type=click.Choice(['wkt', 'geojson']),
-              default='wkt',
-              help='Output format for geometries')
-@click.option('--limit', '-n', type=int, default=10,
-              help='Number of features to show (default: 10)')
-@click.option('--where', '-w', help='SQL WHERE clause')
-def dump(geodatabase: str, table: str, output_format: str,
-         limit: int, where: Optional[str]):
+@click.argument("geodatabase", type=click.Path(exists=True))
+@click.argument("table")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["wkt", "geojson"]),
+    default="wkt",
+    help="Output format for geometries",
+)
+@click.option(
+    "--limit",
+    "-n",
+    type=int,
+    default=10,
+    help="Number of features to show (default: 10)",
+)
+@click.option("--where", "-w", help="SQL WHERE clause")
+def dump(
+    geodatabase: str, table: str, output_format: str, limit: int, where: str | None
+):
     """
     Dump features from a table.
 
@@ -212,19 +231,18 @@ def dump(geodatabase: str, table: str, output_format: str,
         click.echo(f"Table not found: {table}", err=True)
         sys.exit(1)
 
-    kwargs = {'limit': limit}
-    if where:
-        kwargs['where'] = where
-
-    for i, feature in enumerate(gdb.read_table(table, **kwargs)):
+    for i, feature in enumerate(gdb.read_table(table, where=where, limit=limit)):
         click.echo(f"--- Feature {i + 1} (FID: {feature.fid}) ---")
 
         if feature.geometry:
-            if output_format == 'wkt':
+            if output_format == "wkt":
                 click.echo(f"Geometry: {to_wkt(feature.geometry)}")
             else:
                 from .converters import to_geojson_geometry
-                click.echo(f"Geometry: {json.dumps(to_geojson_geometry(feature.geometry))}")
+
+                click.echo(
+                    f"Geometry: {json.dumps(to_geojson_geometry(feature.geometry))}"
+                )
         else:
             click.echo("Geometry: None")
 
@@ -238,8 +256,8 @@ def dump(geodatabase: str, table: str, output_format: str,
     gdb.close()
 
 
-@main.command('list-tables')
-@click.argument('geodatabase', type=click.Path(exists=True))
+@main.command("list-tables")
+@click.argument("geodatabase", type=click.Path(exists=True))
 def list_tables(geodatabase: str):
     """
     List all tables in the geodatabase.
@@ -261,5 +279,5 @@ def list_tables(geodatabase: str):
     gdb.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

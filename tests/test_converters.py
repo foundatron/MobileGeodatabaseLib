@@ -1,10 +1,14 @@
 """Tests for output converters."""
 
-import json
-import pytest
 from mobile_geodatabase import (
-    Point, LineString, Polygon, MultiLineString, MultiPolygon,
-    to_wkt, to_wkb, to_geojson_geometry, feature_to_geojson
+    LineString,
+    MultiLineString,
+    Point,
+    Polygon,
+    feature_to_geojson,
+    to_geojson_geometry,
+    to_wkb,
+    to_wkt,
 )
 from mobile_geodatabase.database import Feature
 
@@ -62,11 +66,7 @@ class TestToGeoJsonGeometry:
 class TestFeatureToGeoJson:
     def test_feature_with_geometry(self):
         pt = Point(x=-122.0, y=47.0)
-        feature = Feature(
-            geometry=pt,
-            attributes={"name": "Test", "value": 42},
-            fid=1
-        )
+        feature = Feature(geometry=pt, attributes={"name": "Test", "value": 42}, fid=1)
         geojson = feature_to_geojson(feature)
 
         assert geojson["type"] == "Feature"
@@ -76,10 +76,7 @@ class TestFeatureToGeoJson:
         assert geojson["geometry"]["type"] == "Point"
 
     def test_feature_without_geometry(self):
-        feature = Feature(
-            geometry=None,
-            attributes={"name": "NoGeom"}
-        )
+        feature = Feature(geometry=None, attributes={"name": "NoGeom"})
         geojson = feature_to_geojson(feature)
 
         assert geojson["type"] == "Feature"
@@ -102,7 +99,7 @@ class TestToWkb:
         # First byte is byte order (1 = little endian)
         assert wkb[0] == 1
         # Next 4 bytes are type (1 = Point)
-        assert wkb[1:5] == b'\x01\x00\x00\x00'
+        assert wkb[1:5] == b"\x01\x00\x00\x00"
         # Remaining bytes are coordinates
         assert len(wkb) == 21  # 1 + 4 + 8 + 8
 
@@ -112,7 +109,7 @@ class TestToWkb:
 
         assert wkb[0] == 1  # Little endian
         # Type 2 = LineString
-        assert wkb[1:5] == b'\x02\x00\x00\x00'
+        assert wkb[1:5] == b"\x02\x00\x00\x00"
 
     def test_wkb_big_endian(self):
         pt = Point(x=1.0, y=2.0)

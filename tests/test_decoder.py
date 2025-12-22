@@ -1,9 +1,11 @@
 """Tests for ST_Geometry decoder."""
 
 import pytest
+
 from mobile_geodatabase import (
-    STGeometryDecoder, decode_geometry, CoordinateSystem,
-    Point, LineString, Polygon, MultiLineString
+    CoordinateSystem,
+    STGeometryDecoder,
+    decode_geometry,
 )
 
 
@@ -21,7 +23,7 @@ class TestSTGeometryDecoder:
 
     def test_magic_header(self):
         decoder = STGeometryDecoder()
-        assert decoder.MAGIC == bytes([0x64, 0x11, 0x0F, 0x00])
+        assert bytes([0x64, 0x11, 0x0F, 0x00]) == decoder.MAGIC
 
     def test_coord_threshold(self):
         decoder = STGeometryDecoder()
@@ -30,24 +32,24 @@ class TestSTGeometryDecoder:
     def test_zigzag_decode(self):
         decoder = STGeometryDecoder()
         # Zigzag encoding: 0->0, 1->-1, 2->1, 3->-2, 4->2, etc.
-        assert decoder._zigzag_decode(0) == 0
-        assert decoder._zigzag_decode(1) == -1
-        assert decoder._zigzag_decode(2) == 1
-        assert decoder._zigzag_decode(3) == -2
-        assert decoder._zigzag_decode(4) == 2
+        assert decoder.zigzag_decode(0) == 0
+        assert decoder.zigzag_decode(1) == -1
+        assert decoder.zigzag_decode(2) == 1
+        assert decoder.zigzag_decode(3) == -2
+        assert decoder.zigzag_decode(4) == 2
 
     def test_read_varint(self):
         decoder = STGeometryDecoder()
         # Single byte varint (< 128)
         data = bytes([0x05])
-        value, offset = decoder._read_varint(data, 0)
+        value, offset = decoder.read_varint(data, 0)
         assert value == 5
         assert offset == 1
 
         # Multi-byte varint
         # 300 = 0b100101100 = 0xAC 0x02
         data = bytes([0xAC, 0x02])
-        value, offset = decoder._read_varint(data, 0)
+        value, offset = decoder.read_varint(data, 0)
         assert value == 300
         assert offset == 2
 
@@ -81,10 +83,7 @@ class TestDecodeGeometry:
     def test_decode_with_custom_params(self):
         with pytest.raises(ValueError):
             decode_geometry(
-                bytes([0x00, 0x00, 0x00, 0x00]),
-                x_origin=0,
-                y_origin=0,
-                xy_scale=1000
+                bytes([0x00, 0x00, 0x00, 0x00]), x_origin=0, y_origin=0, xy_scale=1000
             )
 
 
@@ -98,7 +97,7 @@ class TestRawToCoord:
         raw_x = 137695015937
         raw_y = 724105586082
 
-        x, y = decoder._raw_to_coord(raw_x, raw_y)
+        x, y = decoder.raw_to_coord(raw_x, raw_y)
 
         # Should be in Washington State range for EPSG:3857
         assert -14_000_000 < x < -12_000_000

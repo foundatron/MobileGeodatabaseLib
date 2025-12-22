@@ -5,14 +5,17 @@ This module provides a high-level API for accessing .geodatabase files,
 which are SQLite databases containing spatial data encoded in ST_Geometry format.
 """
 
-import sqlite3
+import contextlib
 import re
+import sqlite3
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Any, Union
+from types import TracebackType
+from typing import Any
 
-from .geometry import Geometry, CoordinateSystem, GeometryType
 from .decoder import STGeometryDecoder
+from .geometry import CoordinateSystem, Geometry
 
 
 @dataclass
@@ -25,9 +28,10 @@ class Feature:
         attributes: Dictionary of attribute values keyed by column name
         fid: Feature ID (primary key)
     """
-    geometry: Optional[Geometry]
-    attributes: Dict[str, Any]
-    fid: Optional[int] = None
+
+    geometry: Geometry | None
+    attributes: dict[str, Any]
+    fid: int | None = None
 
     def __getitem__(self, key: str) -> Any:
         """Allow dict-like access to attributes"""
@@ -53,13 +57,14 @@ class TableInfo:
         columns: List of column names
         row_count: Number of rows in the table
     """
+
     name: str
-    geometry_column: Optional[str] = None
-    geometry_type: Optional[str] = None
-    geometry_type_code: Optional[int] = None
-    srid: Optional[int] = None
-    coord_system: Optional[CoordinateSystem] = None
-    columns: List[str] = field(default_factory=list)
+    geometry_column: str | None = None
+    geometry_type: str | None = None
+    geometry_type_code: int | None = None
+    srid: int | None = None
+    coord_system: CoordinateSystem | None = None
+    columns: list[str] = field(default_factory=lambda: [])
     row_count: int = 0
 
     @property
@@ -89,7 +94,7 @@ class GeoDatabase:
         tables: List of TableInfo objects describing available tables
     """
 
-    def __init__(self, path: Union[str, Path]):
+    def __init__(self, path: str | Path):
         """
         Open a geodatabase file.
 
@@ -104,10 +109,10 @@ class GeoDatabase:
         if not self.path.exists():
             raise FileNotFoundError(f"Geodatabase not found: {self.path}")
 
-        self._conn: Optional[sqlite3.Connection] = None
-        self._tables: Optional[List[TableInfo]] = None
-        self._table_map: Dict[str, TableInfo] = {}
-        self._decoders: Dict[str, STGeometryDecoder] = {}
+        self._conn: sqlite3.Connection | None = None
+        self._tables: list[TableInfo] | None = None
+        self._table_map: dict[str, TableInfo] = {}
+        self._decoders: dict[str, STGeometryDecoder] = {}
 
         # Validate it's a geodatabase
         self._validate()
@@ -124,7 +129,7 @@ class GeoDatabase:
                 if not cursor.fetchone():
                     raise ValueError("Not a valid geodatabase: missing GDB_Items table")
         except sqlite3.Error as e:
-            raise ValueError(f"Invalid geodatabase file: {e}")
+            raise ValueError(f"Invalid geodatabase file: {e}") from e
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get or create database connection"""
@@ -139,14 +144,19 @@ class GeoDatabase:
             self._conn.close()
             self._conn = None
 
-    def __enter__(self):
+    def __enter__(self) -> "GeoDatabase":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     @property
-    def tables(self) -> List[TableInfo]:
+    def tables(self) -> list[TableInfo]:
         """
         List all tables with geometry in the geodatabase.
 
@@ -155,14 +165,15 @@ class GeoDatabase:
         """
         if self._tables is None:
             self._load_tables()
+        assert self._tables is not None  # _load_tables always sets this
         return self._tables
 
     @property
-    def table_names(self) -> List[str]:
+    def table_names(self) -> list[str]:
         """List of table names with geometry"""
         return [t.name for t in self.tables]
 
-    def get_table(self, name: str) -> Optional[TableInfo]:
+    def get_table(self, name: str) -> TableInfo | None:
         """
         Get table info by name.
 
@@ -190,7 +201,7 @@ class GeoDatabase:
                 SELECT table_name, column_name, geometry_type, srid
                 FROM st_geometry_columns
             """)
-            geom_info = {row['table_name']: dict(row) for row in cursor.fetchall()}
+            geom_info = {row["table_name"]: dict(row) for row in cursor.fetchall()}
         except sqlite3.Error:
             geom_info = {}
 
@@ -206,31 +217,27 @@ class GeoDatabase:
         for (table_name,) in cursor.fetchall():
             # Get column info
             cursor.execute(f"PRAGMA table_info('{table_name}')")
-            columns = [row['name'] for row in cursor.fetchall()]
+            columns = [row["name"] for row in cursor.fetchall()]
 
             # Get row count
             cursor.execute(f"SELECT COUNT(*) FROM '{table_name}'")
             row_count = cursor.fetchone()[0]
 
             # Build TableInfo
-            info = TableInfo(
-                name=table_name,
-                columns=columns,
-                row_count=row_count
-            )
+            info = TableInfo(name=table_name, columns=columns, row_count=row_count)
 
             # Add geometry info if available
             if table_name in geom_info:
                 gi = geom_info[table_name]
-                info.geometry_column = gi.get('column_name', 'shape')
-                info.geometry_type_code = gi.get('geometry_type')
-                info.srid = gi.get('srid')
+                info.geometry_column = gi.get("column_name", "shape")
+                info.geometry_type_code = gi.get("geometry_type")
+                info.srid = gi.get("srid")
                 info.geometry_type = self._geometry_type_name(info.geometry_type_code)
                 info.coord_system = self._get_coordinate_system(table_name)
-            elif 'shape' in [c.lower() for c in columns]:
+            elif "shape" in [c.lower() for c in columns]:
                 # Infer geometry column
                 for col in columns:
-                    if col.lower() == 'shape':
+                    if col.lower() == "shape":
                         info.geometry_column = col
                         info.coord_system = self._get_coordinate_system(table_name)
                         break
@@ -238,15 +245,23 @@ class GeoDatabase:
             self._tables.append(info)
             self._table_map[table_name.lower()] = info
 
-    def _geometry_type_name(self, type_code: Optional[int]) -> Optional[str]:
+    def _geometry_type_name(self, type_code: int | None) -> str | None:
         """Convert geometry type code to name"""
         if type_code is None:
             return None
         type_map = {
-            1: "Point", 2: "LineString", 3: "Polygon",
-            4: "MultiPoint", 5: "MultiLineString", 6: "MultiPolygon",
-            1001: "PointZ", 1002: "LineStringZ", 1003: "PolygonZ",
-            1004: "MultiPointZ", 1005: "MultiLineStringZ", 1006: "MultiPolygonZ",
+            1: "Point",
+            2: "LineString",
+            3: "Polygon",
+            4: "MultiPoint",
+            5: "MultiLineString",
+            6: "MultiPolygon",
+            1001: "PointZ",
+            1002: "LineStringZ",
+            1003: "PolygonZ",
+            1004: "MultiPointZ",
+            1005: "MultiLineStringZ",
+            1006: "MultiPolygonZ",
             2005: "MultiLineStringZ",  # Alternative code seen in practice
         }
         return type_map.get(type_code, f"Unknown({type_code})")
@@ -265,11 +280,9 @@ class GeoDatabase:
         cursor = conn.cursor()
 
         # Try both with and without 'main.' prefix
+        row: sqlite3.Row | None = None
         for name in [f"main.{table_name}", table_name]:
-            cursor.execute(
-                "SELECT Definition FROM GDB_Items WHERE Name = ?",
-                (name,)
-            )
+            cursor.execute("SELECT Definition FROM GDB_Items WHERE Name = ?", (name,))
             row = cursor.fetchone()
             if row:
                 break
@@ -277,26 +290,26 @@ class GeoDatabase:
         if not row or not row[0]:
             return CoordinateSystem()
 
-        xml = row[0]
+        xml: str = row[0]
 
-        def extract(pattern):
+        def extract(pattern: str) -> float | None:
             match = re.search(pattern, xml)
             return float(match.group(1)) if match else None
 
         # Extract SRID from WKID
-        srid_match = re.search(r'<WKID>(\d+)</WKID>', xml)
+        srid_match = re.search(r"<WKID>(\d+)</WKID>", xml)
         srid = int(srid_match.group(1)) if srid_match else None
 
         # Extract WKT
-        wkt_match = re.search(r'<WKT>([^<]+)</WKT>', xml)
+        wkt_match = re.search(r"<WKT>([^<]+)</WKT>", xml)
         wkt = wkt_match.group(1) if wkt_match else None
 
         return CoordinateSystem(
-            x_origin=extract(r'<XOrigin>([^<]+)') or -20037700,
-            y_origin=extract(r'<YOrigin>([^<]+)') or -30241100,
-            xy_scale=extract(r'<XYScale>([^<]+)') or 10000,
-            z_origin=extract(r'<ZOrigin>([^<]+)') or -100000,
-            z_scale=extract(r'<ZScale>([^<]+)') or 10000,
+            x_origin=extract(r"<XOrigin>([^<]+)") or -20037700,
+            y_origin=extract(r"<YOrigin>([^<]+)") or -30241100,
+            xy_scale=extract(r"<XYScale>([^<]+)") or 10000,
+            z_origin=extract(r"<ZOrigin>([^<]+)") or -100000,
+            z_scale=extract(r"<ZScale>([^<]+)") or 10000,
             srid=srid,
             wkt=wkt,
         )
@@ -312,10 +325,13 @@ class GeoDatabase:
                 self._decoders[key] = STGeometryDecoder()
         return self._decoders[key]
 
-    def read_table(self, table_name: str,
-                   columns: Optional[List[str]] = None,
-                   where: Optional[str] = None,
-                   limit: Optional[int] = None) -> Iterator[Feature]:
+    def read_table(
+        self,
+        table_name: str,
+        columns: list[str] | None = None,
+        where: str | None = None,
+        limit: int | None = None,
+    ) -> Iterator[Feature]:
         """
         Read features from a table.
 
@@ -348,18 +364,18 @@ class GeoDatabase:
             cols = list(columns)
             if table.geometry_column and table.geometry_column not in cols:
                 cols.append(table.geometry_column)
-            if 'OBJECTID' not in cols and 'OBJECTID' in table.columns:
-                cols.insert(0, 'OBJECTID')
-            col_str = ', '.join(f'"{c}"' for c in cols)
+            if "OBJECTID" not in cols and "OBJECTID" in table.columns:
+                cols.insert(0, "OBJECTID")
+            col_str = ", ".join(f'"{c}"' for c in cols)
         else:
-            col_str = '*'
+            col_str = "*"
 
         # Build query
         sql = f'SELECT {col_str} FROM "{table_name}"'
         if where:
-            sql += f' WHERE {where}'
+            sql += f" WHERE {where}"
         if limit:
-            sql += f' LIMIT {limit}'
+            sql += f" LIMIT {limit}"
 
         cursor.execute(sql)
         decoder = self._get_decoder(table_name)
@@ -372,38 +388,42 @@ class GeoDatabase:
             if table.geometry_column and table.geometry_column in row_dict:
                 blob = row_dict.pop(table.geometry_column)
                 if blob:
-                    try:
+                    with contextlib.suppress(Exception):
                         geometry = decoder.decode(blob)
-                    except Exception:
-                        pass  # Skip invalid geometries
 
             # Extract FID (case-insensitive lookup)
             fid = None
             for key in list(row_dict.keys()):
-                if key.lower() == 'objectid':
+                if key.lower() == "objectid":
                     fid = row_dict.pop(key)
                     break
 
-            yield Feature(
-                geometry=geometry,
-                attributes=row_dict,
-                fid=fid
-            )
+            yield Feature(geometry=geometry, attributes=row_dict, fid=fid)
 
-    def read_all(self, table_name: str, **kwargs) -> List[Feature]:
+    def read_all(
+        self,
+        table_name: str,
+        columns: list[str] | None = None,
+        where: str | None = None,
+        limit: int | None = None,
+    ) -> list[Feature]:
         """
         Read all features from a table into a list.
 
         Args:
             table_name: Name of the table to read
-            **kwargs: Additional arguments passed to read_table
+            columns: List of attribute columns to include (None for all)
+            where: Optional SQL WHERE clause (without 'WHERE' keyword)
+            limit: Maximum number of features to return
 
         Returns:
             List of Feature objects
         """
-        return list(self.read_table(table_name, **kwargs))
+        return list(
+            self.read_table(table_name, columns=columns, where=where, limit=limit)
+        )
 
-    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> sqlite3.Cursor:
         """
         Execute a raw SQL query.
 

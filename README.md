@@ -18,12 +18,18 @@ A pure Python library for reading Esri Mobile Geodatabase (.geodatabase) files.
 pip install mobile-geodatabase
 ```
 
+Or with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv pip install mobile-geodatabase
+```
+
 Or install from source:
 
 ```bash
 git clone https://github.com/foundatron/MobileGeodatabaseLib.git
 cd MobileGeodatabaseLib
-pip install -e .
+pip install -e .  # or: uv pip install -e .
 ```
 
 ## Quick Start
@@ -160,15 +166,78 @@ See [docs/format.md](docs/format.md) for complete format documentation.
 
 ## Development
 
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+This project uses [uv](https://docs.astral.sh/uv/) for package management, [ruff](https://docs.astral.sh/ruff/) for linting/formatting, and [pyright](https://github.com/microsoft/pyright) for type checking.
 
-# Run tests
-pytest
+### Setup
+
+```bash
+# Create virtual environment and install dependencies
+uv venv
+uv pip install -e ".[dev]"
+
+# Install pre-commit hooks
+uv run pre-commit install
+```
+
+### Running Tests
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run tests with verbose output
+uv run pytest -v
 
 # Run tests with coverage
-pytest --cov=mobile_geodatabase
+uv run pytest --cov=mobile_geodatabase
+
+# Run specific test file
+uv run pytest tests/test_geometry.py
+```
+
+### Linting & Formatting
+
+```bash
+# Check for linting errors
+uv run ruff check src tests
+
+# Auto-fix linting errors
+uv run ruff check --fix src tests
+
+# Check formatting
+uv run ruff format --check src tests
+
+# Apply formatting
+uv run ruff format src tests
+```
+
+### Type Checking
+
+```bash
+# Run type checker (strict mode)
+uv run pyright src tests
+```
+
+### Pre-commit Hooks
+
+Pre-commit hooks run automatically on `git commit`. To run manually:
+
+```bash
+# Run all hooks on staged files
+uv run pre-commit run
+
+# Run all hooks on all files
+uv run pre-commit run --all-files
+
+# Update hook versions
+uv run pre-commit autoupdate
+```
+
+### All Checks
+
+```bash
+# Run all checks (lint, format, typecheck, tests)
+uv run ruff check src tests && uv run ruff format --check src tests && uv run pyright src tests && uv run pytest
 ```
 
 ## License
