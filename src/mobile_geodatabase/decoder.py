@@ -212,14 +212,20 @@ class STGeometryDecoder:
                 points_per_part[part_idx] if part_idx < len(points_per_part) else 0
             )
 
+            # Track consecutive absolute coordinates for break marker detection
+            prev_was_absolute = False
+            pending_coord: tuple[float, float] | None = None
+
             # First point of each part
             if part_idx == 0:
                 # Already read first coordinate
                 current_part.append(self.raw_to_coord(curr_x, curr_y))
                 points_to_read = part_point_count - 1
+                prev_was_absolute = True  # First coord is always absolute
             else:
                 # Need to read first coordinate of this part
                 points_to_read = part_point_count
+                prev_was_absolute = False
 
             for _ in range(points_to_read):
                 if pos >= len(blob):
@@ -229,16 +235,37 @@ class STGeometryDecoder:
                 v2, pos = self.read_varint(blob, pos)
 
                 if v1 > self.COORD_THRESHOLD:
-                    # Absolute coordinate reset (encoding optimization)
+                    # Absolute coordinate reset
                     curr_x, curr_y = v1, v2
+                    coord = self.raw_to_coord(curr_x, curr_y)
+
+                    if prev_was_absolute:
+                        # Second of consecutive absolute pair - this is the real segment start
+                        current_part.append(coord)
+                        pending_coord = None
+                    else:
+                        # First absolute or standalone absolute - defer adding
+                        pending_coord = coord
+
+                    prev_was_absolute = True
                 else:
                     # Delta encoded coordinate
+                    if prev_was_absolute and pending_coord is not None:
+                        # Previous was standalone absolute (not a pair) - add it now
+                        current_part.append(pending_coord)
+                        pending_coord = None
+
                     dx = self.zigzag_decode(v1)
                     dy = self.zigzag_decode(v2)
                     curr_x += dx
                     curr_y += dy
+                    current_part.append(self.raw_to_coord(curr_x, curr_y))
 
-                current_part.append(self.raw_to_coord(curr_x, curr_y))
+                    prev_was_absolute = False
+
+            # Add any remaining pending coordinate at the end of the part
+            if pending_coord is not None:
+                current_part.append(pending_coord)
 
             if current_part:
                 parts.append(current_part)

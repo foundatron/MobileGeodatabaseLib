@@ -1,7 +1,5 @@
 # Mobile Geodatabase Library
 
-!!!! THIS IS SUPER EXPERIMENTAL / Laughably Bad !!!!
-
 A pure Python library for reading Esri Mobile Geodatabase (.geodatabase) files.
 
 ## Features
@@ -161,6 +159,7 @@ This library reverse-engineers the ST_Geometry blob format used in Esri Mobile G
 - **Scale Factor**: Coordinates use 2x the metadata scale value
 - **Coordinate Encoding**: Varint encoding with zigzag for deltas
 - **Multi-part Detection**: Parts are identified by absolute coordinates (>100 billion)
+- **Break Markers**: Consecutive absolute coordinate pairs signal segment boundaries; the first is a break marker (skipped), the second is the real segment start
 
 See [docs/format.md](docs/format.md) for complete format documentation.
 
@@ -246,4 +245,4 @@ MIT License - see LICENSE file.
 
 ## Acknowledgments
 
-The ST_Geometry format was reverse-engineered by analyzing real geodatabase files. This library is not affiliated with or endorsed by Esri. Also doesn't really work...yet.
+The ST_Geometry format was reverse-engineered by analyzing real geodatabase files. This library is not affiliated with or endorsed by Esri.
