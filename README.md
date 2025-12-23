@@ -1,5 +1,7 @@
 # Mobile Geodatabase Library
 
+!!!! EXPERIMENTAL / FUNNY RESULTS !!!!
+
 A pure Python library for reading Esri Mobile Geodatabase (.geodatabase) files.
 
 ## Features
