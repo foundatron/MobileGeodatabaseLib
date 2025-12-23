@@ -140,9 +140,28 @@ y = curr_y / (XY_SCALE * 2) + Y_ORIGIN
 
 ## Multi-Part Geometry Structure (KEY INSIGHT)
 
-Multi-part geometries (MultiLineString, Polygon with holes, MultiPolygon) use the **part_info** structure to define parts:
+Multi-part geometries (MultiLineString, Polygon with holes, MultiPolygon) are detected by analyzing **consecutive absolute coordinate pairs**.
 
-**Part info structure:**
+### Segment Boundary Detection
+
+The key insight is distinguishing between two cases:
+
+1. **Single absolute coordinate** followed by delta coordinates = encoding optimization (NOT a segment boundary). This happens when the delta would be too large to encode efficiently.
+
+1. **Two consecutive absolute coordinates** = segment boundary! The first absolute is the last point of the current segment, and the second absolute is the first point of the NEW segment.
+
+```text
+Example coordinate sequence:
+  [delta] [delta] [delta] [ABSOLUTE] [delta] [delta]  → single part (absolute is optimization)
+  [delta] [delta] [ABSOLUTE] [ABSOLUTE] [delta]       → TWO parts (consecutive = boundary)
+                      ↑           ↑
+                 last point   first point
+                 of part 1    of part 2
+```
+
+### Part Info Structure
+
+The blob contains a `part_info` structure with metadata:
 
 ```text
 part_info[0] = num_parts
@@ -150,37 +169,61 @@ part_info[1:num_parts+1] = point count per part
 part_info[num_parts+1:] = trailing metadata (byte offsets, flags)
 ```
 
-**Important:** Absolute coordinate resets (values > 100 billion) can appear **within a single part** as an encoding optimization when delta values would be too large. These are NOT part boundaries.
+However, the most reliable way to detect segment boundaries is by watching for consecutive absolute coordinate pairs.
 
-**Decoding algorithm:**
+### Decoding Algorithm
 
 ```python
 COORD_THRESHOLD = 100_000_000_000  # 100 billion
 
-# Parse part_info to get part structure
-num_parts = part_info[0]
-points_per_part = part_info[1:num_parts+1]
+parts = []
+current_part = []
+pending_coord = None      # Deferred absolute coord
+prev_was_absolute = False # Track if previous was absolute
 
-# Decode each part
-for part_idx in range(num_parts):
-    part_point_count = points_per_part[part_idx]
-    current_part = []
+while has_more_coordinates():
+    v1, v2 = read_varint_pair()
 
-    for i in range(part_point_count):
-        v1, v2 = read_varint_pair()
+    if v1 > COORD_THRESHOLD:
+        # Absolute coordinate
+        curr_x, curr_y = v1, v2
+        coord = to_real_coords(curr_x, curr_y)
 
-        if v1 > COORD_THRESHOLD:
-            # Absolute coordinate reset (encoding optimization, NOT new part)
-            curr_x, curr_y = v1, v2
+        if prev_was_absolute and pending_coord is not None:
+            # CONSECUTIVE ABSOLUTE PAIR = SEGMENT BOUNDARY!
+            # Add pending as last point of current segment
+            current_part.append(pending_coord)
+            # Save current segment, start new one
+            if current_part:
+                parts.append(current_part)
+            current_part = []
+            # Add this coord as first point of new segment
+            current_part.append(coord)
+            pending_coord = None
         else:
-            # Delta coordinate
-            dx = zigzag_decode(v1)
-            dy = zigzag_decode(v2)
-            curr_x += dx
-            curr_y += dy
+            # Single absolute - defer until we know if it's a pair
+            pending_coord = coord
 
-        current_part.append((curr_x, curr_y))
+        prev_was_absolute = True
+    else:
+        # Delta coordinate
+        if pending_coord is not None:
+            # Previous standalone absolute - add it normally
+            current_part.append(pending_coord)
+            pending_coord = None
 
+        dx = zigzag_decode(v1)
+        dy = zigzag_decode(v2)
+        curr_x += dx
+        curr_y += dy
+        current_part.append(to_real_coords(curr_x, curr_y))
+
+        prev_was_absolute = False
+
+# Don't forget any pending coord at the end
+if pending_coord is not None:
+    current_part.append(pending_coord)
+if current_part:
     parts.append(current_part)
 ```
 

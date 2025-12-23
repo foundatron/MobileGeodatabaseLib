@@ -250,19 +250,26 @@ class STGeometryDecoder:
                     curr_x, curr_y = v1, v2
                     coord = self.raw_to_coord(curr_x, curr_y)
 
-                    if prev_was_absolute:
-                        # Second of consecutive absolute pair - this is the real segment start
+                    if prev_was_absolute and pending_coord is not None:
+                        # Consecutive absolute pair = segment boundary!
+                        # Add pending as last point of current part
+                        current_part.append(pending_coord)
+                        # Save current part and start new one
+                        if current_part:
+                            parts.append(current_part)
+                        current_part = []
+                        # Add this coord as first point of new part
                         current_part.append(coord)
                         pending_coord = None
                     else:
-                        # First absolute or standalone absolute - defer adding
+                        # Single absolute - defer adding until we know if it's a pair
                         pending_coord = coord
 
                     prev_was_absolute = True
                 else:
                     # Delta encoded coordinate
-                    if prev_was_absolute and pending_coord is not None:
-                        # Previous was standalone absolute (not a pair) - add it now
+                    if pending_coord is not None:
+                        # Standalone absolute followed by delta - add it normally
                         current_part.append(pending_coord)
                         pending_coord = None
 
