@@ -252,12 +252,13 @@ class STGeometryDecoder:
 
                     if prev_was_absolute and pending_coord is not None:
                         # Consecutive absolute pair = segment boundary!
-                        # ABS₁ (pending_coord) is just a break marker - DON'T add it
+                        # Add pending as last point of current part
+                        current_part.append(pending_coord)
                         # Save current part and start new one
                         if current_part:
                             parts.append(current_part)
                         current_part = []
-                        # Add ABS₂ (this coord) as first point of new part
+                        # Add this coord as first point of new part
                         current_part.append(coord)
                         pending_coord = None
                     else:
