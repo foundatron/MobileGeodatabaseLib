@@ -159,13 +159,11 @@ class STGeometryDecoder:
         _xmax_raw, pos = self.read_varint(blob, pos)
         _ymax_raw, pos = self.read_varint(blob, pos)
 
-        # Part information structure:
-        # - All part info varints are small (< 100 billion)
-        # - First large varint (> 100 billion) is the first X coordinate
-        # - part_info[0] = num_parts (for multi-part geometries)
-        # - part_info[1:num_parts+1] = point count per part
-        part_info: list[int] = []
+        # Skip part info varints until we find first coordinate (> threshold)
+        # Part info contains metadata, but segment boundaries are detected via
+        # consecutive absolute coordinate pairs in the data stream
         x_raw: int = 0
+        varint_count = 0
         while pos < len(blob):
             v, new_pos = self.read_varint(blob, pos)
             if v > self.COORD_THRESHOLD:
@@ -173,17 +171,13 @@ class STGeometryDecoder:
                 x_raw = v
                 pos = new_pos
                 break
-            part_info.append(v)
             pos = new_pos
-            if len(part_info) > 10000:
+            varint_count += 1
+            if varint_count > 10000:
                 raise ValueError("Could not find coordinate start")
 
         # Read first Y coordinate
         y_raw, pos = self.read_varint(blob, pos)
-
-        # Note: part_info contains metadata about parts, but the most reliable
-        # way to detect segment boundaries is by looking for consecutive
-        # absolute coordinate pairs in the data stream.
 
         # Decode all coordinates, splitting on consecutive absolute pairs
         # Consecutive absolute coordinates indicate segment boundaries:
