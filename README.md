@@ -1,6 +1,6 @@
 # Mobile Geodatabase Library
 
-A pure Python library for reading Esri Mobile Geodatabase (.geodatabase) files.
+A pure Python library for reading Esri Mobile Geodatabase (.geodatabase) files. Experimental as hell.
 
 ## Why This Library?
 
