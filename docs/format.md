@@ -148,16 +148,18 @@ The key insight is distinguishing between two cases:
 
 1. **Single absolute coordinate** followed by delta coordinates = encoding optimization (NOT a segment boundary). This happens when the delta would be too large to encode efficiently.
 
-1. **Two consecutive absolute coordinates** = segment boundary! The first absolute is the last point of the current segment, and the second absolute is the first point of the NEW segment.
+1. **Two consecutive absolute coordinates** = segment boundary! The first absolute (ABS₁) is a **break marker** that should be SKIPPED entirely. The second absolute (ABS₂) is the first point of the NEW segment.
 
 ```text
 Example coordinate sequence:
   [delta] [delta] [delta] [ABSOLUTE] [delta] [delta]  → single part (absolute is optimization)
-  [delta] [delta] [ABSOLUTE] [ABSOLUTE] [delta]       → TWO parts (consecutive = boundary)
-                      ↑           ↑
-                 last point   first point
-                 of part 1    of part 2
+  [delta] [delta] [ABS₁] [ABS₂] [delta]               → TWO parts (consecutive = boundary)
+                    ↑       ↑
+               break marker  first point
+               (SKIP THIS)   of part 2
 ```
+
+**Critical:** ABS₁ jumps to the approximate location of the next segment but is NOT a real geometry point. Including it creates long straight-line artifacts.
 
 ### Part Info Structure
 
@@ -191,13 +193,12 @@ while has_more_coordinates():
 
         if prev_was_absolute and pending_coord is not None:
             # CONSECUTIVE ABSOLUTE PAIR = SEGMENT BOUNDARY!
-            # Add pending as last point of current segment
-            current_part.append(pending_coord)
+            # ABS₁ (pending_coord) is a break marker - DON'T add it!
             # Save current segment, start new one
             if current_part:
                 parts.append(current_part)
             current_part = []
-            # Add this coord as first point of new segment
+            # Add ABS₂ (this coord) as first point of new segment
             current_part.append(coord)
             pending_coord = None
         else:
