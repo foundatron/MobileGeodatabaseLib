@@ -178,10 +178,14 @@ COORD_THRESHOLD = 100_000_000_000  # 100 billion
 
 parts = []
 current_part = []
-pending_coord = None      # Deferred absolute coord
-prev_was_absolute = False # Track if previous was absolute
+prev_was_absolute = True  # First coord is always absolute
 
-while has_more_coordinates():
+# Add first coordinate (always absolute)
+first_x, first_y = read_varint_pair()
+curr_x, curr_y = first_x, first_y
+current_part.append(to_real_coords(curr_x, curr_y))
+
+for _ in range(point_count - 1):
     v1, v2 = read_varint_pair()
 
     if v1 > COORD_THRESHOLD:
@@ -189,40 +193,27 @@ while has_more_coordinates():
         curr_x, curr_y = v1, v2
         coord = to_real_coords(curr_x, curr_y)
 
-        if prev_was_absolute and pending_coord is not None:
+        if prev_was_absolute:
             # CONSECUTIVE ABSOLUTE PAIR = SEGMENT BOUNDARY!
-            # Add pending as last point of current segment
-            current_part.append(pending_coord)
-            # Save current segment, start new one
+            # Previous coord was end of that segment, this is start of new
             if current_part:
                 parts.append(current_part)
-            current_part = []
-            # Add this coord as first point of new segment
-            current_part.append(coord)
-            pending_coord = None
+            current_part = [coord]
         else:
-            # Single absolute - defer until we know if it's a pair
-            pending_coord = coord
+            # Single absolute after deltas - just add normally
+            current_part.append(coord)
 
         prev_was_absolute = True
     else:
-        # Delta coordinate
-        if pending_coord is not None:
-            # Previous standalone absolute - add it normally
-            current_part.append(pending_coord)
-            pending_coord = None
-
+        # Delta encoded coordinate
         dx = zigzag_decode(v1)
         dy = zigzag_decode(v2)
         curr_x += dx
         curr_y += dy
         current_part.append(to_real_coords(curr_x, curr_y))
-
         prev_was_absolute = False
 
-# Don't forget any pending coord at the end
-if pending_coord is not None:
-    current_part.append(pending_coord)
+# Don't forget the last part
 if current_part:
     parts.append(current_part)
 ```
