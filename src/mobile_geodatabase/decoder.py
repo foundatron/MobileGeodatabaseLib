@@ -181,112 +181,57 @@ class STGeometryDecoder:
         # Read first Y coordinate
         y_raw, pos = self.read_varint(blob, pos)
 
-        # Determine part structure from part_info
-        # For single-part: part_info might just have trailing zeros or [point_count, 0, 0]
-        # For multi-part: part_info[0] = num_parts, part_info[1:num_parts+1] = points per part
-        num_parts = 1
-        points_per_part: list[int] = [point_count]
+        # Note: part_info contains metadata about parts, but the most reliable
+        # way to detect segment boundaries is by looking for consecutive
+        # absolute coordinate pairs in the data stream.
 
-        if part_info:
-            potential_num_parts = part_info[0]
-            # Check if this looks like a valid part structure:
-            # - num_parts should be reasonable (< 10000)
-            # - should have enough values for part counts
-            # - all counts should be non-negative
-            # - sum of counts should match the header point_count
-            has_valid_structure = (
-                0 < potential_num_parts < 10000 and len(part_info) > potential_num_parts
-            )
-            if has_valid_structure:
-                potential_counts = part_info[1 : potential_num_parts + 1]
-                # Validate that:
-                # - counts list is non-empty
-                # - all counts are non-negative
-                # - sum of counts matches header point_count (catches compact-bbox
-                #   format where small values are misinterpreted as part structure)
-                counts_valid = (
-                    potential_counts
-                    and all(c >= 0 for c in potential_counts)
-                    and sum(potential_counts) == point_count
-                )
-                if counts_valid:
-                    num_parts = potential_num_parts
-                    points_per_part = potential_counts
-
-        # Decode coordinates using the part structure
+        # Decode all coordinates, splitting on consecutive absolute pairs
+        # Consecutive absolute coordinates indicate segment boundaries:
+        # - First absolute = last point of current segment
+        # - Second absolute = first point of new segment
         parts: list[list[tuple[float, float]]] = []
+        current_part: list[tuple[float, float]] = []
         curr_x, curr_y = x_raw, y_raw
 
-        for part_idx in range(num_parts):
-            current_part: list[tuple[float, float]] = []
-            part_point_count = (
-                points_per_part[part_idx] if part_idx < len(points_per_part) else 0
-            )
+        # Add first coordinate (always absolute)
+        current_part.append(self.raw_to_coord(curr_x, curr_y))
+        prev_was_absolute = True
 
-            # Track consecutive absolute coordinates for break marker detection
-            prev_was_absolute = False
-            pending_coord: tuple[float, float] | None = None
+        for _ in range(point_count - 1):
+            if pos >= len(blob):
+                break
 
-            # First point of each part
-            if part_idx == 0:
-                # Already read first coordinate
-                current_part.append(self.raw_to_coord(curr_x, curr_y))
-                points_to_read = part_point_count - 1
-                prev_was_absolute = True  # First coord is always absolute
+            v1, pos = self.read_varint(blob, pos)
+            v2, pos = self.read_varint(blob, pos)
+
+            if v1 > self.COORD_THRESHOLD:
+                # Absolute coordinate
+                curr_x, curr_y = v1, v2
+                coord = self.raw_to_coord(curr_x, curr_y)
+
+                if prev_was_absolute:
+                    # Consecutive absolute pair = segment boundary!
+                    # Previous coord was end of that segment, this is start of new
+                    if current_part:
+                        parts.append(current_part)
+                    current_part = [coord]
+                else:
+                    # Single absolute after deltas - just add normally
+                    current_part.append(coord)
+
+                prev_was_absolute = True
             else:
-                # Need to read first coordinate of this part
-                points_to_read = part_point_count
+                # Delta encoded coordinate
+                dx = self.zigzag_decode(v1)
+                dy = self.zigzag_decode(v2)
+                curr_x += dx
+                curr_y += dy
+                current_part.append(self.raw_to_coord(curr_x, curr_y))
                 prev_was_absolute = False
 
-            for _ in range(points_to_read):
-                if pos >= len(blob):
-                    break
-
-                v1, pos = self.read_varint(blob, pos)
-                v2, pos = self.read_varint(blob, pos)
-
-                if v1 > self.COORD_THRESHOLD:
-                    # Absolute coordinate reset
-                    curr_x, curr_y = v1, v2
-                    coord = self.raw_to_coord(curr_x, curr_y)
-
-                    if prev_was_absolute and pending_coord is not None:
-                        # Consecutive absolute pair = segment boundary!
-                        # Add pending as last point of current part
-                        current_part.append(pending_coord)
-                        # Save current part and start new one
-                        if current_part:
-                            parts.append(current_part)
-                        current_part = []
-                        # Add this coord as first point of new part
-                        current_part.append(coord)
-                        pending_coord = None
-                    else:
-                        # Single absolute - defer adding until we know if it's a pair
-                        pending_coord = coord
-
-                    prev_was_absolute = True
-                else:
-                    # Delta encoded coordinate
-                    if pending_coord is not None:
-                        # Standalone absolute followed by delta - add it normally
-                        current_part.append(pending_coord)
-                        pending_coord = None
-
-                    dx = self.zigzag_decode(v1)
-                    dy = self.zigzag_decode(v2)
-                    curr_x += dx
-                    curr_y += dy
-                    current_part.append(self.raw_to_coord(curr_x, curr_y))
-
-                    prev_was_absolute = False
-
-            # Add any remaining pending coordinate at the end of the part
-            if pending_coord is not None:
-                current_part.append(pending_coord)
-
-            if current_part:
-                parts.append(current_part)
+        # Don't forget the last part
+        if current_part:
+            parts.append(current_part)
 
         # Determine geometry type from flags
         # Lower 4 bits: 1=Point, 4=Line, 8=Polygon
