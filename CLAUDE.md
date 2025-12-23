@@ -59,6 +59,6 @@ See `docs/format.md` for complete format documentation.
 
 ## Code Quality Rules
 
-- **Never add linting ignore comments** (e.g., `# type: ignore`, `# noqa`, `# pyright: ignore`). Fix the underlying issue instead.
+- **Never add linting ignore comments unless explicitly asked for by a human developer** (e.g., `# type: ignore`, `# noqa`, `# pyright: ignore`). Fix the underlying issue instead.
 - All code must pass ruff and pyright checks without suppressions.
 - Python 3.12+ required; use modern union syntax (`X | Y` not `Union[X, Y]`)

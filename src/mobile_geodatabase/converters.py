@@ -723,14 +723,14 @@ def write_geopackage(
     # Use EPSG string format for CRS (fiona accepts this directly)
     crs_string = f"EPSG:{srid}"
     count = 0
-    with fiona.open(
+    with fiona.open(  # pyright: ignore[reportUnknownMemberType]
         output_path,
         "w",
         driver="GPKG",
         crs=crs_string,
         schema=schema,
         layer=layer_name,
-    ) as dst:
+    ) as dst:  # pyright: ignore[reportUnknownVariableType]
         # Import shapely types for geometry promotion
         from shapely.geometry import LineString as ShapelyLineString
         from shapely.geometry import MultiLineString as ShapelyMultiLineString
@@ -757,7 +757,7 @@ def write_geopackage(
                 "geometry": geom_dict,
                 "properties": feature.attributes,
             }
-            dst.write(record)
+            dst.write(record)  # pyright: ignore[reportUnknownMemberType]
             count += 1
 
     return count

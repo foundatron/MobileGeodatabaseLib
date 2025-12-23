@@ -100,10 +100,6 @@ pythonPlatform = "All"
 typeCheckingMode = "strict"
 reportMissingImports = true
 reportMissingTypeStubs = false
-# fiona library lacks type stubs; these settings allow using it in strict mode
-reportUnknownMemberType = "warning"
-reportUnknownVariableType = "warning"
-reportUnknownArgumentType = "warning"
 include = ["src", "tests"]
 venvPath = "."
 venv = ".venv"

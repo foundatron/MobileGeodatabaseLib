@@ -1,5 +1,10 @@
 """Tests for output converters."""
 
+# pyright: reportUnknownMemberType=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false
+# Fiona library lacks complete type stubs; suppress unknown type warnings in tests
+
 import tempfile
 from pathlib import Path
 

@@ -193,12 +193,23 @@ class STGeometryDecoder:
             # - num_parts should be reasonable (< 10000)
             # - should have enough values for part counts
             # - all counts should be non-negative
+            # - sum of counts should match the header point_count
             has_valid_structure = (
                 0 < potential_num_parts < 10000 and len(part_info) > potential_num_parts
             )
             if has_valid_structure:
                 potential_counts = part_info[1 : potential_num_parts + 1]
-                if potential_counts and all(c >= 0 for c in potential_counts):
+                # Validate that:
+                # - counts list is non-empty
+                # - all counts are non-negative
+                # - sum of counts matches header point_count (catches compact-bbox
+                #   format where small values are misinterpreted as part structure)
+                counts_valid = (
+                    potential_counts
+                    and all(c >= 0 for c in potential_counts)
+                    and sum(potential_counts) == point_count
+                )
+                if counts_valid:
                     num_parts = potential_num_parts
                     points_per_part = potential_counts
 
