@@ -217,31 +217,32 @@ class STGeometryDecoder:
         parts: list[list[tuple[float, float]]] = []
         curr_x, curr_y = x_raw, y_raw
 
+        # Track consecutive absolute coordinates for break marker detection
+        # These need to persist across the entire decode, not reset per part
+        prev_was_absolute = False
+        pending_coord: tuple[float, float] | None = None
+
         for part_idx in range(num_parts):
             current_part: list[tuple[float, float]] = []
             part_point_count = (
                 points_per_part[part_idx] if part_idx < len(points_per_part) else 0
             )
 
-            # Track consecutive absolute coordinates for break marker detection
-            prev_was_absolute = False
-            pending_coord: tuple[float, float] | None = None
-
             # First point of each part
             if part_idx == 0:
                 # Already read first coordinate
                 current_part.append(self.raw_to_coord(curr_x, curr_y))
-                points_to_read = part_point_count - 1
+                coords_added = 1
+                coords_needed = part_point_count
                 prev_was_absolute = True  # First coord is always absolute
             else:
                 # Need to read first coordinate of this part
-                points_to_read = part_point_count
-                prev_was_absolute = False
+                coords_added = 0
+                coords_needed = part_point_count
 
-            for _ in range(points_to_read):
-                if pos >= len(blob):
-                    break
-
+            # Loop until we have added the correct number of coordinates to output
+            # (not just read that many - break markers are read but not added)
+            while coords_added < coords_needed and pos < len(blob):
                 v1, pos = self.read_varint(blob, pos)
                 v2, pos = self.read_varint(blob, pos)
 
@@ -259,6 +260,7 @@ class STGeometryDecoder:
                         current_part = []
                         # Add ABS₂ (this coord) as first point of new part
                         current_part.append(coord)
+                        coords_added += 1
                         pending_coord = None
                     else:
                         # Single absolute - defer adding until we know if it's a pair
@@ -270,6 +272,7 @@ class STGeometryDecoder:
                     if pending_coord is not None:
                         # Standalone absolute followed by delta - add it normally
                         current_part.append(pending_coord)
+                        coords_added += 1
                         pending_coord = None
 
                     dx = self.zigzag_decode(v1)
@@ -277,12 +280,14 @@ class STGeometryDecoder:
                     curr_x += dx
                     curr_y += dy
                     current_part.append(self.raw_to_coord(curr_x, curr_y))
+                    coords_added += 1
 
                     prev_was_absolute = False
 
             # Add any remaining pending coordinate at the end of the part
             if pending_coord is not None:
                 current_part.append(pending_coord)
+                coords_added += 1
 
             if current_part:
                 parts.append(current_part)
